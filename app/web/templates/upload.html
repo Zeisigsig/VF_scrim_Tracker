@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}업로드 · 내전 트래커{% endblock %}
+{% block content %}
+<div class="panel" style="max-width: 560px;">
+    <h2>스코어보드 업로드</h2>
+    <p class="muted">내전 종료 직후 결과 스코어보드 스크린샷을 업로드하세요. 추출 후 검토 화면에서 확정합니다.
+       여러 경기를 한꺼번에 올릴 수도 있습니다(파일 다중 선택).</p>
+    <form action="/upload" method="post" enctype="multipart/form-data">
+        <p><label>스크린샷 <input type="file" name="screenshots" accept="image/*" multiple required></label></p>
+        <p class="muted">여러 장을 선택하면 아래 맵/스코어/날짜 입력은 무시되고, 각 경기는 검토 화면에서 개별 입력합니다.</p>
+        <p><label>맵 (선택) <input type="text" name="map_name" placeholder="예: 어센트"></label></p>
+        <p>
+            <label>스코어 A <input class="narrow numonly" type="text" inputmode="numeric" name="team_a_rounds"></label>
+            <label>: B <input class="narrow numonly" type="text" inputmode="numeric" name="team_b_rounds"></label>
+            <span class="muted">스크린샷에 없으면 직접 입력</span>
+        </p>
+        <p><label>날짜 (선택) <input type="datetime-local" name="played_at"></label></p>
+        <p><button type="submit">추출 시작</button></p>
+    </form>
+</div>
+<script>
+    document.querySelectorAll('.numonly').forEach(function (inp) {
+        inp.addEventListener('input', function () {
+            const cleaned = inp.value.replace(/[^0-9]/g, '');
+            if (cleaned !== inp.value) inp.value = cleaned;
+        });
+    });
+</script>
+{% endblock %}

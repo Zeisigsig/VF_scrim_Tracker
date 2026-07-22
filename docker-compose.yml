@@ -1,0 +1,12 @@
+services:
+  scrim-tracker:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data        # DB·스크린샷 영속 (스펙 §9)
+    environment:
+      - DB_PATH=data/scrim.db
+    env_file:
+      - .env
+    restart: unless-stopped

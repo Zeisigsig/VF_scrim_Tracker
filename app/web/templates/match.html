@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}경기 #{{ match.id }} · 내전 트래커{% endblock %}
+{% block content %}
+<div class="panel">
+    <h2>경기 #{{ match.id }} <span class="muted">{{ match.map_name or "" }} · {{ match.played_at[:16] }}</span></h2>
+    <p>스코어 <span class="team-dot team-dot-A"></span>A {{ match.team_a_rounds if match.team_a_rounds is not none else "?" }} :
+       {{ match.team_b_rounds if match.team_b_rounds is not none else "?" }} B<span class="team-dot team-dot-B"></span></p>
+
+    {% if is_admin %}
+    <details class="edit-box">
+        <summary>경기 수정</summary>
+        <form method="post" action="/match/{{ match.id }}/score"
+              onsubmit="return confirm('원시값을 바꾸면 전 경기 레이팅이 재계산됩니다. 진행할까요?');">
+            <div class="inline">
+                <label>맵 <input type="text" name="map_name" value="{{ match.map_name or '' }}"
+                       placeholder="맵 이름" style="width:110px"></label>
+                <label>스코어 A <input class="narrow" type="number" name="team_a_rounds"
+                       value="{{ match.team_a_rounds if match.team_a_rounds is not none else '' }}"></label>
+                <label>: B <input class="narrow" type="number" name="team_b_rounds"
+                       value="{{ match.team_b_rounds if match.team_b_rounds is not none else '' }}"></label>
+            </div>
+            <div class="table-scroll" style="margin-top:12px;">
+            <table>
+                <thead>
+                    <tr><th>유저</th><th>팀</th><th>요원</th>
+                        <th class="num">ACS</th><th class="num">K</th>
+                        <th class="num">D</th><th class="num">A</th></tr>
+                </thead>
+                <tbody>
+                {% for it in items %}
+                <tr class="team-{{ it.mp.team }}">
+                    <td>{{ it.player.label }}</td>
+                    <td>
+                        <select name="team_{{ it.mp.id }}">
+                            <option value="A" {{ 'selected' if it.mp.team == 'A' }}>A</option>
+                            <option value="B" {{ 'selected' if it.mp.team == 'B' }}>B</option>
+                        </select>
+                    </td>
+                    <td>
+                        <select name="agent_{{ it.mp.id }}">
+                        {% for ag in agents %}
+                            <option value="{{ ag }}" {{ 'selected' if ag == it.mp.agent }}>{{ ag }}</option>
+                        {% endfor %}
+                        </select>
+                    </td>
+                    <td><input class="narrow" type="number" name="acs_{{ it.mp.id }}" value="{{ it.mp.acs }}"></td>
+                    <td><input class="narrow" type="number" name="kills_{{ it.mp.id }}" value="{{ it.mp.kills }}"></td>
+                    <td><input class="narrow" type="number" name="deaths_{{ it.mp.id }}" value="{{ it.mp.deaths }}"></td>
+                    <td><input class="narrow" type="number" name="assists_{{ it.mp.id }}" value="{{ it.mp.assists }}"></td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            </div>
+            <button type="submit" style="margin-top:12px;">저장 후 재계산</button>
+        </form>
+        <p class="muted" style="margin-top:6px;">맵·스코어·요원·ACS·K/D/A 저장 시 표시점수·OpenSkill 이 전체 재계산됩니다(스코어 무입력 시 승패 미반영).</p>
+    </details>
+    {% endif %}
+
+    <table>
+        <thead>
+            <tr>
+                <th>#</th><th>유저</th><th>랭크</th><th>요원</th>
+                <th class="num">ACS</th>
+                {% if is_admin %}<th class="num">기대 ACS</th><th>ACS 대비</th>{% endif %}
+                <th class="num">K/D/A</th>
+                {% if is_admin %}<th class="num">TACR</th><th class="num">표시점수</th>{% endif %}
+            </tr>
+        </thead>
+        <tbody>
+        {% for it in items %}
+        {% set exp = it.expected_acs or 0 %}
+        {% set ratio = (it.mp.acs / exp) if exp else 0 %}
+        <tr class="team-{{ it.mp.team }}">
+            <td>{{ loop.index }}</td>
+            <td><a href="/player/{{ it.player.id }}">{{ it.player.label }}</a></td>
+            <td>{{ it.rank or "-" }}</td>
+            <td>{{ it.mp.agent }}</td>
+            <td class="num">{{ it.mp.acs }}</td>
+            {% if is_admin %}
+            <td class="num muted">{{ "%.0f"|format(exp) }}</td>
+            <td>
+                <div class="bar-wrap" title="{{ '%.2f'|format(ratio) }}×">
+                    <div class="bar" style="width: {{ [ratio * 50, 100]|min }}%;
+                        background: {{ '#4ade80' if ratio >= 1 else '#f87171' }};"></div>
+                </div>
+            </td>
+            {% endif %}
+            <td class="num">{{ it.mp.kills }}/{{ it.mp.deaths }}/{{ it.mp.assists }}</td>
+            {% if is_admin %}
+            <td class="num">{{ "%.0f"|format(it.tacr) if it.tacr is not none else "-" }}</td>
+            <td class="num score">{{ "%.0f"|format(it.display_score) if it.display_score is not none else "-" }}</td>
+            {% endif %}
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% if is_admin %}
+    <p class="muted" style="margin-top:10px;">막대는 기대 ACS 대비 실제 ACS 비율 (초록=초과 달성). 정렬 기준: 표시점수.</p>
+
+    <form method="post" action="/match/{{ match.id }}/delete" style="margin-top:16px;"
+          onsubmit="return confirm('이 경기를 삭제합니다. 경기 기록이 사라지고 전 경기 레이팅이 재계산됩니다. 되돌릴 수 없습니다. 진행할까요?');">
+        <button class="danger" type="submit">이 경기 삭제</button>
+    </form>
+    {% endif %}
+</div>
+{% endblock %}

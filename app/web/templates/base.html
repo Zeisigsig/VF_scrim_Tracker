@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}내전 트래커{% endblock %}</title>
+    <link rel="stylesheet" href="/static/style.css?v=3">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body>
+<header>
+    <nav>
+        <a class="brand" href="/">모여봐요 발로의 숲 내전 트래커</a>
+        {% if user %}
+        <span class="nav-user">{{ user.username }}{% if is_admin %} <span class="badge">어드민</span>{% endif %}</span>
+        <a href="/players">{% if is_admin %}유저 관리{% else %}내 정보{% endif %}</a>
+        {% if is_admin %}<a href="/upload">업로드</a>{% endif %}
+        <a href="/leaderboard">리더보드</a>
+        <a href="/logout">로그아웃</a>
+        {% endif %}
+    </nav>
+</header>
+<main>
+    {% block content %}{% endblock %}
+</main>
+</body>
+</html>

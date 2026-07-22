@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}리더보드 · 내전 트래커{% endblock %}
+{% block content %}
+<div class="panel">
+    <div class="lb-head">
+        <h2>리더보드</h2>
+        {% if is_admin %}
+        <div class="sort-toggle">
+            <a class="btn-sort {% if sort != 'score' %}active{% endif %}" title="나이순"
+               href="/leaderboard?min_games={{ min_games }}&tier={{ tier|urlencode }}&sort=age">@</a>
+            <a class="btn-sort {% if sort == 'score' %}active{% endif %}" title="조정점수순"
+               href="/leaderboard?min_games={{ min_games }}&tier={{ tier|urlencode }}&sort=score">!</a>
+        </div>
+        {% endif %}
+    </div>
+    <form class="inline" method="get" action="/leaderboard">
+        <label>티어
+            <select name="tier">
+                <option value="">전체</option>
+                {% for t in tier_names %}
+                <option value="{{ t }}" {% if t == tier %}selected{% endif %}>{{ t }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>최소 경기 수
+            <input class="narrow" type="number" name="min_games" value="{{ min_games }}" min="1">
+        </label>
+        <button type="submit">적용</button>
+    </form>
+    <p class="muted">{% if sort == 'score' %}수축 조정 평균 표시점수순 (empirical Bayes, m=3){% else %}나이순 (출생연도 빠른 순, 9X→0X){% endif %}.
+    {% if tier %}티어 필터: <b>{{ tier }}</b> (수동 티어 미설정 유저는 제외){% endif %}</p>
+    {% if not is_admin %}<p class="muted">남의 조정 점수는 가려집니다(•••). 본인 점수만 확인할 수 있어요.</p>{% endif %}
+    {% if rows %}
+    <table>
+        <thead>
+            <tr><th>#</th><th>유저</th><th>티어</th><th class="num">판수</th><th class="num">조정 점수</th>
+                <th class="num">평균 TACR</th><th class="num">OpenSkill</th></tr>
+        </thead>
+        <tbody>
+        {% for r in rows %}
+        <tr>
+            <td>{{ loop.index }}</td>
+            <td><a href="/player/{{ r.player_id }}">{{ r.label }}</a></td>
+            <td class="muted">{{ r.tier_name or "-" }}</td>
+            <td class="num">{{ r.games }}</td>
+            {% if is_admin or (user and r.player_id == user.player_id) %}
+            <td class="num score">{{ "%.0f"|format(r.adj_score) }}</td>
+            {% else %}
+            <td class="num muted" title="조정 점수는 본인 것만 보여요">•••</td>
+            {% endif %}
+            <td class="num">{{ "%.0f"|format(r.mean_tacr) }}</td>
+            <td class="num muted">
+                {% if r.mu is not none %}{{ "%.1f"|format(r.mu) }} ± {{ "%.1f"|format(r.sigma) }}{% else %}-{% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="muted">조건을 만족하는 유저가 없습니다.</p>
+    {% endif %}
+</div>
+{% endblock %}

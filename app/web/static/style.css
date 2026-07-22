@@ -1,0 +1,104 @@
+:root {
+    --bg: #0f1115;
+    --panel: #1a1d24;
+    --panel2: #21252e;
+    --text: #e6e6e6;
+    --muted: #9aa0ab;
+    --accent: #ff4655; /* 발로란트 레드 */
+    --green: #4ade80;
+    --red: #f87171;
+    --border: #2c3038;
+}
+* { box-sizing: border-box; }
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", "Malgun Gothic", system-ui, sans-serif;
+    font-size: 14px;
+}
+header { border-bottom: 1px solid var(--border); background: var(--panel); }
+nav { display: flex; gap: 18px; align-items: center; padding: 12px 20px; max-width: 1100px; margin: 0 auto; }
+nav a { color: var(--muted); text-decoration: none; }
+nav a:hover { color: var(--text); }
+nav .brand { color: var(--accent); font-weight: 700; margin-right: auto; }
+main { max-width: 1100px; margin: 0 auto; padding: 20px; }
+h1, h2, h3 { font-weight: 600; }
+a { color: #7db3ff; }
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 20px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; }
+tr:hover td { background: var(--panel2); }
+.team-A { border-left: 3px solid var(--green); }
+.team-B { border-left: 3px solid var(--red); }
+.team-dot { display: inline-block; width: 11px; height: 11px; border-radius: 2px; vertical-align: baseline; margin: 0 4px; }
+.team-dot-A { background: var(--green); }
+.team-dot-B { background: var(--red); }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; background: var(--panel2); }
+.badge.warn { background: #4a2c00; color: #ffb84d; }
+.notice-dup { border-left: 3px solid #ffb84d; background: #2a2110; }
+.score { font-weight: 700; }
+.bar-wrap { background: var(--panel2); border-radius: 4px; height: 14px; position: relative; min-width: 80px; }
+.bar { background: var(--accent); height: 100%; border-radius: 4px; }
+input, select, button {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 5px; padding: 6px 8px; font-size: 13px;
+}
+input.narrow { width: 62px; }
+/* 검토 테이블: 12개 열이 넓어 페이지를 넘으므로 가로 스크롤로 가둔다. */
+.table-scroll { overflow-x: auto; }
+.table-scroll table { min-width: max-content; }
+.table-scroll th, .table-scroll td { padding: 6px 6px; white-space: nowrap; vertical-align: middle; }
+/* 숫자 헤더는 .num 으로 우측정렬되어 있지만 아래 입력창은 좌측에 놓여 어긋나 보인다.
+   검토표에서는 헤더 라벨을 입력창과 같은 왼쪽 기준으로 맞춘다. */
+.table-scroll th.num { text-align: left; }
+.table-scroll input.narrow { width: 46px; }
+.table-scroll input, .table-scroll select { padding: 5px 6px; }
+button { background: var(--accent); color: #fff; border: none; cursor: pointer; font-weight: 600; }
+button.ghost { background: var(--panel2); color: var(--text); }
+button.danger { background: var(--red); color: #1a1a1a; }
+button:hover { opacity: 0.9; }
+form.inline { display: inline; }
+form.stack { display: flex; flex-direction: column; gap: 10px; max-width: 320px; }
+form.stack label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 13px; }
+form.stack input { width: 100%; }
+.nav-user { color: var(--text); font-size: 13px; }
+.toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.toolbar .chk { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 13px; }
+.toolbar .chk input { width: auto; }
+.lb-head { display: flex; align-items: center; justify-content: space-between; }
+.sort-toggle { display: flex; gap: 8px; }
+.btn-sort {
+    display: inline-block; min-width: 44px; padding: 10px 18px; border-radius: 6px;
+    background: var(--panel2); color: var(--text); text-decoration: none;
+    font-size: 18px; font-weight: 700; line-height: 1; text-align: center;
+    border: 1px solid var(--border);
+}
+.btn-sort.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.btn-sort:hover { opacity: 0.9; }
+/* 경기 상세 '수정' 버튼: 접힌 상태에서도 버튼처럼 보이게 summary 를 꾸민다. */
+.edit-box { margin: 10px 0; }
+.edit-box > summary {
+    display: inline-block; list-style: none; cursor: pointer;
+    background: var(--accent); color: #fff; font-weight: 600;
+    padding: 7px 14px; border-radius: 5px; user-select: none;
+}
+.edit-box > summary::-webkit-details-marker { display: none; }
+.edit-box > summary::before { content: "\270E  "; }
+.edit-box[open] > summary { background: var(--panel2); color: var(--text); border: 1px solid var(--border); }
+.edit-box[open] > summary::before { content: "\2715  "; }
+.edit-box > summary:hover { opacity: 0.9; }
+.edit-box .inline { display: block; margin-top: 12px; }
+.edit-box .inline label { margin-right: 10px; }
+.muted { color: var(--muted); }
+/* 일반 유저 '내 정보' 카드: 라벨/값 2열 정의 목록. */
+.info { display: grid; grid-template-columns: max-content 1fr; gap: 8px 18px; margin: 8px 0 14px; max-width: 420px; }
+.info > div { display: contents; }
+.info dt { color: var(--muted); }
+.info dd { margin: 0; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.pos { color: var(--green); }
+.neg { color: var(--red); }
+canvas { max-width: 100%; }

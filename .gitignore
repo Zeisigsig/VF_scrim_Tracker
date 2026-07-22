@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+data/*.db
+data/*.bak-*
+data/screenshots/
+data/inbox/
+.idea/
+.pytest_cache/

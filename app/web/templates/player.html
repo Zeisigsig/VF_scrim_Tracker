@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+{% block title %}{{ player.label }} · 내전 트래커{% endblock %}
+{% block content %}
+<div class="panel">
+    <h2>{{ player.label }}</h2>
+    {% if skill %}
+    <p>OpenSkill μ = <b>{{ "%.2f"|format(skill.mu) }}</b> ± {{ "%.2f"|format(skill.sigma) }}
+       <span class="muted">({{ skill.games_counted }}판 반영)</span></p>
+    {% else %}
+    <p class="muted">아직 OpenSkill 레이팅 없음.</p>
+    {% endif %}
+</div>
+
+<div class="grid2">
+    <div class="panel">
+        <h3>표시 점수 추이</h3>
+        {% if not can_see_scores %}
+        <p class="muted">점수는 본인만 볼 수 있어요.</p>
+        {% elif trend %}
+        <canvas id="trendChart" height="220"></canvas>
+        {% else %}
+        <p class="muted">경기 기록 없음.</p>
+        {% endif %}
+    </div>
+    <div class="panel">
+        <h3>요원별 성과</h3>
+        {% if agent_stats %}
+        <table>
+            <thead><tr><th>요원</th><th class="num">판수</th><th class="num">전적 (승-패)</th><th class="num">승률</th>{% if can_see_scores %}<th class="num">평균 점수</th>{% endif %}</tr></thead>
+            <tbody>
+            {% for a in agent_stats %}
+            {% set decided = a.win + a.loss %}
+            <tr><td>{{ a.agent }}</td><td class="num">{{ a.games }}</td>
+                <td class="num">{{ a.win }}-{{ a.loss }}{% if a.draw %}-{{ a.draw }}무{% endif %}</td>
+                <td class="num">{% if decided %}{{ "%.0f"|format(a.win / decided * 100) }}%{% else %}-{% endif %}</td>
+                {% if can_see_scores %}<td class="num score">{{ "%.0f"|format(a.avg_score) }}</td>{% endif %}</tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="muted">데이터 없음.</p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="grid2">
+    <div class="panel">
+        <h3>라이벌 <span class="muted" style="font-size:.8em">동티어~상위 상대와 킬 팽팽</span></h3>
+        {% if rivals %}
+        <table>
+            <thead><tr><th>상대</th><th class="num">킬 : 데스</th><th class="num">교전</th></tr></thead>
+            <tbody>
+            {% for r in rivals %}
+            <tr><td><a href="/player/{{ r.opponent_id }}">{{ r.label }}</a></td>
+                <td class="num">{{ r.my_kills }} : {{ r.their_kills }}</td>
+                <td class="num">{{ r.encounters }}판</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="muted">아직 라이벌이 없어요. (교전 3판+ · 동티어~상위 상대 · 킬 차 2 이내)</p>
+        {% endif %}
+    </div>
+    <div class="panel">
+        <h3>천적 <span class="muted" style="font-size:.8em">동티어~하위인데 날 더 잡음</span></h3>
+        {% if nemeses %}
+        <table>
+            <thead><tr><th>상대</th><th class="num">데스 : 킬</th><th class="num">교전</th></tr></thead>
+            <tbody>
+            {% for n in nemeses %}
+            <tr><td><a href="/player/{{ n.opponent_id }}">{{ n.label }}</a></td>
+                <td class="num">{{ n.their_kills }} : {{ n.my_kills }}</td>
+                <td class="num">{{ n.encounters }}판</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="muted">천적이 없어요. (동티어~하위 상대에게 +3 이상 더 죽었을 때)</p>
+        {% endif %}
+    </div>
+</div>
+
+{% if challengers or prey %}
+<div class="grid2">
+    <div class="panel">
+        <h3>도전자 <span class="muted" style="font-size:.8em">하위 티어인데 나와 킬 팽팽</span></h3>
+        {% if challengers %}
+        <table>
+            <thead><tr><th>상대</th><th class="num">킬 : 데스</th><th class="num">교전</th></tr></thead>
+            <tbody>
+            {% for c in challengers %}
+            <tr><td><a href="/player/{{ c.opponent_id }}">{{ c.label }}</a></td>
+                <td class="num">{{ c.my_kills }} : {{ c.their_kills }}</td>
+                <td class="num">{{ c.encounters }}판</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="muted">아직 도전자가 없어요. (하위 티어 상대와 킬 차 2 이내로 팽팽할 때)</p>
+        {% endif %}
+    </div>
+    <div class="panel">
+        <h3>사냥감 <span class="muted" style="font-size:.8em">상위 티어인데 내가 더 잡음</span></h3>
+        {% if prey %}
+        <table>
+            <thead><tr><th>상대</th><th class="num">킬 : 데스</th><th class="num">교전</th></tr></thead>
+            <tbody>
+            {% for p in prey %}
+            <tr><td><a href="/player/{{ p.opponent_id }}">{{ p.label }}</a></td>
+                <td class="num">{{ p.my_kills }} : {{ p.their_kills }}</td>
+                <td class="num">{{ p.encounters }}판</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="muted">아직 사냥감이 없어요. (상위 티어 상대를 +3 이상 더 잡았을 때)</p>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+{% if can_see_scores %}
+<div class="grid2">
+    <div class="panel">
+        <h3>맵별 능력치</h3>
+        {% if map_stats|length >= 3 %}
+        <canvas id="mapChart" height="260"></canvas>
+        {% elif map_stats %}
+        <table>
+            <thead><tr><th>맵</th><th class="num">판수</th><th class="num">평균 점수</th></tr></thead>
+            <tbody>
+            {% for s in map_stats %}
+            <tr><td>{{ s.map }}</td><td class="num">{{ s.games }}</td>
+                <td class="num score">{{ "%.0f"|format(s.avg_score) }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        <p class="muted">맵이 3종 이상 쌓이면 다각형으로 표시됩니다.</p>
+        {% else %}
+        <p class="muted">데이터 없음.</p>
+        {% endif %}
+    </div>
+    <div class="panel">
+        <h3>요원별 능력치</h3>
+        {% if agent_stats|length >= 3 %}
+        <canvas id="agentChart" height="260"></canvas>
+        {% else %}
+        <p class="muted">요원이 3종 이상 쌓이면 다각형으로 표시됩니다.</p>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+{% if trend and can_see_scores %}
+<script>
+const labels = {{ trend | map(attribute='played_at') | list | tojson }};
+const scores = {{ trend | map(attribute='display_score') | list | tojson }};
+new Chart(document.getElementById('trendChart'), {
+    type: 'line',
+    data: {
+        labels: labels.map(s => s.slice(0, 10)),
+        datasets: [{
+            label: '표시 점수', data: scores,
+            borderColor: '#ff4655', backgroundColor: 'rgba(255,70,85,0.15)',
+            tension: 0.25, fill: true, pointRadius: 3,
+        }]
+    },
+    options: {
+        scales: { y: { suggestedMin: 0, suggestedMax: 1000, grid: { color: '#2c3038' } },
+                  x: { grid: { color: '#2c3038' } } },
+        plugins: { legend: { labels: { color: '#e6e6e6' } } }
+    }
+});
+</script>
+{% endif %}
+
+{% if can_see_scores %}
+<script>
+function radar(id, labels, data, color) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    new Chart(el, {
+        type: 'radar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: '평균 표시 점수', data: data,
+                borderColor: color, backgroundColor: color + '33',
+                pointBackgroundColor: color, borderWidth: 2,
+            }]
+        },
+        options: {
+            scales: { r: {
+                suggestedMin: 0, suggestedMax: 1000,
+                angleLines: { color: '#2c3038' }, grid: { color: '#2c3038' },
+                pointLabels: { color: '#e6e6e6' },
+                ticks: { color: '#8a8f99', backdropColor: 'transparent', showLabelBackdrop: false },
+            } },
+            plugins: { legend: { labels: { color: '#e6e6e6' } } }
+        }
+    });
+}
+{% if map_stats|length >= 3 %}
+radar('mapChart',
+    {{ map_stats | map(attribute='map') | list | tojson }},
+    {{ map_stats | map(attribute='avg_score') | list | tojson }},
+    '#38bdf8');
+{% endif %}
+{% if agent_stats|length >= 3 %}
+radar('agentChart',
+    {{ agent_stats | map(attribute='agent') | list | tojson }},
+    {{ agent_stats | map(attribute='avg_score') | list | tojson }},
+    '#a78bfa');
+{% endif %}
+</script>
+{% endif %}
+{% endblock %}

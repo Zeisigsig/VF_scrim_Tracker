@@ -1,0 +1,364 @@
+{% extends "base.html" %}
+{% block title %}{% if is_admin %}유저 관리{% else %}내 정보{% endif %} · 내전 트래커{% endblock %}
+{% block content %}
+<style>
+.riot-chip { display:inline-flex; align-items:center; gap:4px; padding:2px 6px; margin:1px 3px 1px 0;
+    border:1px solid var(--border, #444); border-radius:10px; font-size:.85em; white-space:nowrap; }
+.riot-chip .chip-x { background:none; border:none; color:var(--red, #e55); cursor:pointer;
+    padding:0 2px; font-size:1.1em; line-height:1; }
+.riot-cell { min-width:210px; }
+.riot-add-form { display:inline-flex; gap:3px; margin-top:2px; }
+</style>
+<div class="panel">
+    <h2>{% if is_admin %}유저 관리{% else %}내 정보{% endif %}</h2>
+    <p class="muted"><a href="/account/password">비밀번호 변경</a></p>
+    {% if is_admin %}
+    <p class="muted">발로 닉(OCR 매칭용)·디코 닉(표시용)·티어(source=manual)·별칭을 관리합니다.
+    저장은 새로고침 없이 즉시 반영됩니다(제자리 유지).</p>
+    <div class="toolbar">
+        <input type="search" id="pf-search" placeholder="닉·별칭 검색" style="width:160px">
+        <label class="chk"><input type="checkbox" id="pf-nodiscord"> 디코닉 없는 유저만</label>
+        <label class="chk"><input type="checkbox" id="pf-notier"> 티어 없는 유저만</label>
+        <select id="pf-sort">
+            <option value="name">이름순 (가나다)</option>
+            <option value="tier-desc">수동 티어 높은순</option>
+            <option value="tier-asc">수동 티어 낮은순</option>
+        </select>
+        <span class="muted" id="pf-count"></span>
+    </div>
+    <p class="muted" id="pf-hint">닉·별칭을 검색하거나 위 필터를 선택하면 유저가 표시됩니다.</p>
+    <table>
+        <thead>
+            <tr><th>유저 (발로닉 / 디코닉)</th><th>별칭</th><th>수동 티어</th>
+                {% if is_admin %}<th>Riot ID</th><th>티어 설정</th><th>별칭 추가</th><th>병합</th><th>이탈</th>{% endif %}</tr>
+        </thead>
+        <tbody id="players-tbody">
+        {% for it in players %}
+        <tr id="player-{{ it.player.id }}"
+            data-name="{{ it.player.display_name|lower }}"
+            data-discord="{{ (it.player.discord_name or '')|lower }}"
+            data-aliases="{{ it.aliases|join(',')|lower }}"
+            data-tier="{{ it.tier.tier_value if it.tier else '' }}">
+            <td>
+                <a href="/player/{{ it.player.id }}" class="label-link">{{ it.player.label }}</a>
+                {% if is_admin %}
+                <form class="inline" method="post" action="/players/{{ it.player.id }}/edit"
+                      data-ajax data-kind="edit">
+                    <input type="text" name="display_name" value="{{ it.player.display_name }}"
+                           placeholder="발로 닉" title="발로란트 인게임 닉 (OCR 매칭 키)" style="width:110px">
+                    <input type="text" name="discord_name" value="{{ it.player.discord_name or '' }}"
+                           placeholder="디코 닉" title="디스코드 서버 닉 (표시용)" style="width:110px">
+                    <button class="ghost" type="submit">저장</button>
+                </form>
+                {% endif %}
+            </td>
+            <td class="muted alias-cell">{{ it.aliases | join(", ") }}</td>
+            <td class="num tier-cell">{% if it.tier %}{{ "%.1f"|format(it.tier.tier_value) }}{% else %}-{% endif %}</td>
+            {% if is_admin %}
+            <td class="riot-cell">
+                {% for acc in it.riot_accounts %}
+                <span class="riot-chip" data-riot="{{ (acc.riot_name ~ '#' ~ acc.riot_tag)|lower }}">
+                    <span class="riot-id">{{ acc.riot_name }}#{{ acc.riot_tag }}</span>
+                    <form class="inline riot-del-form" method="post"
+                          action="/players/{{ it.player.id }}/riot/delete" data-ajax data-kind="riot-del">
+                        <input type="hidden" name="riot_name" value="{{ acc.riot_name }}">
+                        <input type="hidden" name="riot_tag" value="{{ acc.riot_tag }}">
+                        <button class="chip-x" type="submit" title="삭제">×</button>
+                    </form>
+                </span>
+                {% endfor %}
+                <form class="inline riot-add-form" method="post"
+                      action="/players/{{ it.player.id }}/riot" data-ajax data-kind="riot-add">
+                    <input type="text" name="riot_name" placeholder="Riot 닉" style="width:90px">
+                    <input type="text" name="riot_tag" placeholder="#태그" style="width:56px">
+                    <button class="ghost" type="submit">추가</button>
+                </form>
+            </td>
+            <td>
+                <form class="inline" method="post" action="/players/{{ it.player.id }}/tier"
+                      data-ajax data-kind="tier">
+                    <select name="tier_value">
+                        {% for name, rng in tier_table.items() %}
+                        <option value="{{ rng[1] }}"
+                            {% if it.tier and it.tier.tier_value == rng[1] %}selected{% endif %}>
+                            {{ name }} ({{ rng[1] }})</option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit">저장</button>
+                </form>
+            </td>
+            <td>
+                <form class="inline" method="post" action="/players/{{ it.player.id }}/alias"
+                      data-ajax data-kind="alias">
+                    <input type="text" name="alias" placeholder="별칭" style="width:110px">
+                    <button class="ghost" type="submit">추가</button>
+                </form>
+            </td>
+            <td>
+                <form class="inline" method="post" action="/players/{{ it.player.id }}/merge"
+                      onsubmit="return confirm('이 유저를 선택한 유저로 병합합니다. 경기 기록이 대상 유저로 이전되고 이 유저는 삭제됩니다. 되돌릴 수 없습니다. 진행할까요?');">
+                    <select name="target_id">
+                        <option value="" selected disabled>대상 선택</option>
+                        {% for other in players %}
+                        {% if other.player.id != it.player.id %}
+                        <option value="{{ other.player.id }}">{{ other.player.label }}</option>
+                        {% endif %}
+                        {% endfor %}
+                    </select>
+                    <button class="danger" type="submit">병합</button>
+                </form>
+            </td>
+            <td>
+                <form class="inline" method="post" action="/players/{{ it.player.id }}/depart">
+                    {% if it.player.departed %}
+                    <button class="ghost" type="submit">복구</button>
+                    {% else %}
+                    <button class="danger" type="submit">나감 처리</button>
+                    {% endif %}
+                </form>
+            </td>
+            {% endif %}
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% if not players %}<p class="muted">등록된 유저가 없습니다.</p>{% endif %}
+    {% else %}
+    {% set me = players[0] if players else None %}
+    {% if me %}
+    <dl class="info">
+        <div><dt>발로란트 닉</dt><dd>{{ me.player.display_name }}</dd></div>
+        <div><dt>디스코드 닉</dt><dd>{{ me.player.discord_name or '-' }}</dd></div>
+        <div><dt>Riot ID</dt><dd>{% if me.riot_accounts %}{% for acc in me.riot_accounts %}{{ acc.riot_name }}#{{ acc.riot_tag }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}-{% endif %}</dd></div>
+        <div><dt>OCR 인식 닉네임</dt><dd>{{ me.aliases | join(', ') or '-' }}</dd></div>
+        <div><dt>수동 티어</dt><dd>{% if me.tier %}{{ me.tier_name }} ({{ "%.1f"|format(me.tier.tier_value) }}){% else %}미지정{% endif %}</dd></div>
+    </dl>
+    <p class="muted">정보 수정이 필요하면 어드민에게 요청하세요.</p>
+    <p><a href="/player/{{ me.player.id }}">내 경기 기록 보기 →</a></p>
+    {% else %}
+    <p class="muted">연결된 선수 정보가 없습니다. 어드민에게 문의하세요.</p>
+    {% endif %}
+    {% endif %}
+
+    {% if is_admin and departed %}
+    <details style="margin-top:16px;">
+        <summary class="muted">나간 유저 {{ departed|length }}명 (복구 가능 · 시즌 초기화 시 완전 삭제)</summary>
+        <table style="margin-top:10px;">
+            <thead><tr><th>발로닉</th><th>별칭</th><th>복구</th><th>완전 삭제</th></tr></thead>
+            <tbody>
+            {% for it in departed %}
+            <tr>
+                <td class="muted">{{ it.player.display_name }}</td>
+                <td class="muted">{{ it.aliases | join(", ") }}</td>
+                <td>
+                    <form class="inline" method="post" action="/players/{{ it.player.id }}/depart">
+                        <button class="ghost" type="submit">복구</button>
+                    </form>
+                </td>
+                <td>
+                    <form class="inline" method="post" action="/players/{{ it.player.id }}/delete"
+                          onsubmit="return confirm('{{ it.player.display_name }} 를 완전 삭제합니다. 이 유저의 모든 경기 기록·별칭·티어가 사라지고 전 경기 레이팅이 재계산됩니다. 되돌릴 수 없습니다. 진행할까요?');">
+                        <button class="danger" type="submit">완전 삭제</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </details>
+    {% endif %}
+</div>
+
+{% if is_admin %}
+<div class="panel">
+    <h2>계정 관리</h2>
+    <p class="muted">계정 아이디는 디스코드 닉으로 고정입니다. 비밀번호 초기화 시 공통 기본 비밀번호로 돌아가고,
+    해당 유저는 다음 로그인 때 새 비밀번호를 설정해야 합니다.</p>
+    <form class="inline" method="post" action="/accounts/provision" style="margin-bottom:10px;">
+        <button type="submit">미발급 참가자 계정 발급</button>
+        <span class="muted">발급 대기 {{ unprovisioned }}명 (디코닉 보유·미이탈 중 계정 없는 유저)</span>
+    </form>
+    <input type="search" id="ac-search" placeholder="아이디·닉 검색" style="width:180px; margin-bottom:10px;">
+    <p class="muted" id="ac-hint">아이디나 닉을 검색하면 계정이 표시됩니다.</p>
+    {% if accounts %}
+    <table>
+        <thead><tr><th>아이디 (디코닉)</th><th>유저</th><th>권한</th><th>상태</th><th>비밀번호</th></tr></thead>
+        <tbody id="accounts-tbody">
+        {% for a in accounts %}
+        <tr data-search="{{ (a.user.username ~ ' ' ~ a.label)|lower }}">
+            <td>{{ a.user.username }}</td>
+            <td class="muted">{{ a.label }}</td>
+            <td>{% if a.is_admin %}<span class="badge">어드민</span>{% else %}일반{% endif %}</td>
+            <td class="muted">{% if a.user.must_change_password %}비번 변경 대기{% else %}설정 완료{% endif %}</td>
+            <td>
+                <form class="inline" method="post" action="/users/{{ a.user.id }}/reset-password"
+                      onsubmit="return confirm('{{ a.user.username }} 계정의 비밀번호를 기본값으로 초기화할까요?');">
+                    <button class="ghost" type="submit">초기화</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}<p class="muted">발급된 계정이 없습니다.</p>{% endif %}
+</div>
+
+<div class="panel" style="border-color: var(--red);">
+    <h2>시즌 초기화</h2>
+    <p class="muted">랭크 시즌이 바뀔 때 사용합니다. <b>모든 경기 기록·레이팅·OpenSkill·자동 계산된 티어를 삭제</b>하고,
+    <b>'나감 처리'된 유저는 완전히 제거</b>합니다. 남아있는 선수 명단·발로닉·디코닉·별칭·수동 티어는 그대로 유지됩니다.</p>
+    <form method="post" action="/players/reset-season"
+          onsubmit="return confirm('정말 시즌을 초기화할까요? 모든 경기 기록과 레이팅이 삭제되며 되돌릴 수 없습니다. (선수/별칭/수동 티어는 유지)');">
+        <button class="danger" type="submit">시즌 초기화 (경기·레이팅 전체 삭제)</button>
+    </form>
+</div>
+{% endif %}
+
+{% if is_admin %}
+<script>
+(function () {
+    const tbody = document.getElementById('players-tbody');
+    if (!tbody) return;
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    const search = document.getElementById('pf-search');
+    const noDiscord = document.getElementById('pf-nodiscord');
+    const noTier = document.getElementById('pf-notier');
+    const sort = document.getElementById('pf-sort');
+    const count = document.getElementById('pf-count');
+    const hint = document.getElementById('pf-hint');
+
+    function applyView() {
+        const q = search.value.trim().toLowerCase();
+        const onlyD = noDiscord.checked;
+        const onlyT = noTier.checked;
+        // 기본 상태(검색어·필터 없음)에서는 아무도 표시하지 않는다.
+        const active = q !== '' || onlyD || onlyT;
+        let shown = 0;
+        for (const r of rows) {
+            if (!active) { r.style.display = 'none'; continue; }
+            const hay = r.dataset.name + ' ' + r.dataset.discord + ' ' + r.dataset.aliases;
+            const matchQ = !q || hay.includes(q);
+            const matchD = !onlyD || !r.dataset.discord;
+            const matchT = !onlyT || r.dataset.tier === '';
+            const vis = matchQ && matchD && matchT;
+            r.style.display = vis ? '' : 'none';
+            if (vis) shown++;
+        }
+        const mode = sort.value;
+        const sorted = rows.slice().sort((a, b) => {
+            if (mode === 'name') return a.dataset.name.localeCompare(b.dataset.name, 'ko');
+            const ta = a.dataset.tier === '' ? -1 : parseFloat(a.dataset.tier);
+            const tb = b.dataset.tier === '' ? -1 : parseFloat(b.dataset.tier);
+            return mode === 'tier-asc' ? ta - tb : tb - ta;
+        });
+        for (const r of sorted) tbody.appendChild(r);
+        if (hint) hint.style.display = active ? 'none' : '';
+        count.textContent = active ? shown + '명 표시' : '';
+    }
+    search.addEventListener('input', applyView);
+    noDiscord.addEventListener('change', applyView);
+    noTier.addEventListener('change', applyView);
+    sort.addEventListener('change', applyView);
+
+    // 계정 관리: 검색해야 계정이 뜨도록(기본 숨김).
+    const acSearch = document.getElementById('ac-search');
+    const acHint = document.getElementById('ac-hint');
+    const acBody = document.getElementById('accounts-tbody');
+    if (acSearch && acBody) {
+        const acRows = Array.from(acBody.querySelectorAll('tr'));
+        function acView() {
+            const q = acSearch.value.trim().toLowerCase();
+            for (const r of acRows) {
+                r.style.display = q !== '' && r.dataset.search.includes(q) ? '' : 'none';
+            }
+            if (acHint) acHint.style.display = q ? 'none' : '';
+        }
+        acSearch.addEventListener('input', acView);
+        acView();
+    }
+
+    function flash(btn, text) {
+        const orig = btn.dataset.orig || btn.textContent;
+        btn.dataset.orig = orig;
+        btn.textContent = text;
+        btn.disabled = true;
+        setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1200);
+    }
+
+    function updateRow(form) {
+        const r = form.closest('tr');
+        const kind = form.dataset.kind;
+        if (kind === 'edit') {
+            const name = form.display_name.value.trim();
+            const discord = form.discord_name.value.trim();
+            r.dataset.name = name.toLowerCase();
+            r.dataset.discord = discord.toLowerCase();
+            r.querySelector('.label-link').textContent = discord ? discord + ' (' + name + ')' : name;
+        } else if (kind === 'tier') {
+            const v = parseFloat(form.tier_value.value);
+            r.dataset.tier = String(v);
+            r.querySelector('.tier-cell').textContent = v.toFixed(1);
+            for (const o of form.tier_value.options) o.selected = (o.value === form.tier_value.value);
+        } else if (kind === 'alias') {
+            const a = form.alias.value.trim();
+            if (a) {
+                const cell = r.querySelector('.alias-cell');
+                cell.textContent = cell.textContent.trim() ? cell.textContent.trim() + ', ' + a : a;
+                r.dataset.aliases = r.dataset.aliases ? r.dataset.aliases + ',' + a.toLowerCase() : a.toLowerCase();
+                form.alias.value = '';
+            }
+        } else if (kind === 'riot-del') {
+            const chip = form.closest('.riot-chip');
+            if (chip) chip.remove();
+        } else if (kind === 'riot-add') {
+            const name = form.riot_name.value.trim();
+            const tag = form.riot_tag.value.trim().replace(/^#/, '');
+            if (!name || !tag) return;
+            const cell = form.closest('.riot-cell');
+            const key = (name + '#' + tag).toLowerCase();
+            if (cell.querySelector('.riot-chip[data-riot="' + key + '"]')) {
+                form.riot_name.value = ''; form.riot_tag.value = ''; return;
+            }
+            const action = form.action.replace(/\/riot$/, '/riot/delete');
+            const chip = document.createElement('span');
+            chip.className = 'riot-chip';
+            chip.dataset.riot = key;
+            chip.innerHTML =
+                '<span class="riot-id"></span>' +
+                '<form class="inline riot-del-form" method="post" data-ajax data-kind="riot-del">' +
+                '<input type="hidden" name="riot_name"><input type="hidden" name="riot_tag">' +
+                '<button class="chip-x" type="submit" title="삭제">×</button></form>';
+            chip.querySelector('.riot-id').textContent = name + '#' + tag;
+            const delForm = chip.querySelector('form');
+            delForm.action = action;
+            delForm.riot_name.value = name;
+            delForm.riot_tag.value = tag;
+            cell.insertBefore(chip, form);
+            attachAjax(delForm);
+            form.riot_name.value = ''; form.riot_tag.value = '';
+        }
+    }
+
+    function attachAjax(form) {
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = form.querySelector('button[type=submit]');
+            try {
+                const res = await fetch(form.action, { method: 'POST', body: new FormData(form) });
+                if (!res.ok) throw new Error(res.status);
+                updateRow(form);
+                applyView();
+                flash(btn, form.dataset.kind === 'riot-del' ? '×' : '저장됨');
+            } catch (err) {
+                flash(btn, '실패');
+            }
+        });
+    }
+
+    tbody.querySelectorAll('form[data-ajax]').forEach(attachAjax);
+
+    applyView();
+})();
+</script>
+{% endif %}
+{% endblock %}

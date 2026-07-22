@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}홈 · 내전 트래커{% endblock %}
+{% block content %}
+{% if dup_files %}
+<div class="panel notice-dup">
+    <b>이미 같은 파일명이 있어 {{ dup_files|length }}개를 건너뛰었어요.</b>
+    <span class="muted">({{ dup_files|join(", ") }}) — 새로 등록하려면 파일명을 바꿔 다시 업로드하세요.</span>
+</div>
+{% endif %}
+<div class="grid2">
+    <div class="panel">
+        <h2>지표 읽는 법</h2>
+        <p><b>표시 점수 (0~1000)</b><br>
+        <span class="muted">한 경기에서 <b>자기 티어 기대치 대비</b> 얼마나 잘했는지를 알아보기 쉽게 0~1000으로 바꾼 값.
+        <b>500점 = 딱 티어값만큼</b> 했다는 뜻이고, 높을수록 기대 이상, 낮을수록 기대 이하입니다.</span></p>
+        <p><b>TACR (티어 보정 퍼포먼스)</b><br>
+        <span class="muted">ACS·킬데스 같은 실제 지표를 "그 티어면 이 정도는 한다"는 기대치와 비교해 매긴 점수.
+        티어가 높은 사람은 더 잘해야 같은 점수가 나옵니다. <b>100 = 기대치 정확히 수행(표시 점수 500)</b>.
+        표시 점수의 바탕이 되는 원본 값입니다.</span></p>
+        <p><b>OpenSkill (μ ± σ)</b><br>
+        <span class="muted">여러 경기의 승패를 누적해 추정한 <b>장기 실력 레이팅</b>(체스 레이팅과 비슷).
+        μ는 추정 실력, σ는 불확실성으로 <b>경기를 많이 할수록 σ가 작아져</b> 값이 안정됩니다.
+        한 경기 퍼포먼스(TACR)와 달리 실력의 큰 흐름을 봅니다.</span></p>
+    </div>
+    <div class="panel">
+        <h2>조정 점수 분포</h2>
+        <p class="muted">전체 참가자의 조정 점수가 어떻게 퍼져 있는지 보여줘요. 수치는 표시하지 않고,
+        {% if dist and dist.my_frac is not none %}<b>▲ 화살표가 내 위치</b>예요.{% else %}본인 위치는 경기 기록이 있어야 표시돼요.{% endif %}</p>
+        {% if dist %}
+        <canvas id="distChart" height="200"></canvas>
+        <p class="muted" style="text-align:center; margin:4px 0 0;">낮음 &rarr; 높음</p>
+        {% else %}
+        <p class="muted">분포를 그릴 만큼 경기 데이터가 충분하지 않아요.</p>
+        {% endif %}
+        <p><a href="/leaderboard">전체 리더보드 &rarr;</a></p>
+    </div>
+</div>
+
+{% if dist %}
+<script>
+(function () {
+    const counts = {{ dist.counts | tojson }};
+    const myFrac = {{ dist.my_frac | tojson }};
+    // 곡선(tension) 스플라인이 데이터 최댓값 위로 넘칠 수 있어 y 상한에 여유를 준다.
+    const yMax = Math.max(...counts) * 1.35 || 1;
+    const arrowPlugin = {
+        id: 'myArrow',
+        afterDraw(chart) {
+            if (myFrac === null) return;
+            const ctx = chart.ctx, a = chart.chartArea;
+            const x = a.left + myFrac * (a.right - a.left);
+            ctx.save();
+            ctx.strokeStyle = 'rgba(255,70,85,0.6)';
+            ctx.lineWidth = 2; ctx.setLineDash([4, 4]);
+            ctx.beginPath(); ctx.moveTo(x, a.top); ctx.lineTo(x, a.bottom); ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.fillStyle = '#ff4655';
+            ctx.beginPath();
+            ctx.moveTo(x, a.bottom + 3);
+            ctx.lineTo(x - 6, a.bottom + 13);
+            ctx.lineTo(x + 6, a.bottom + 13);
+            ctx.closePath(); ctx.fill();
+            ctx.fillStyle = '#e6e6e6'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
+            ctx.fillText('나', x, a.bottom + 27);
+            ctx.restore();
+        }
+    };
+    new Chart(document.getElementById('distChart'), {
+        type: 'line',
+        data: {
+            labels: counts.map(() => ''),
+            datasets: [{
+                data: counts, borderColor: '#7db3ff',
+                backgroundColor: 'rgba(125,179,255,0.15)',
+                fill: true, tension: 0.45, pointRadius: 0, borderWidth: 2,
+            }]
+        },
+        options: {
+            layout: { padding: { bottom: 30 } },
+            plugins: { legend: { display: false }, tooltip: { enabled: false } },
+            scales: { x: { display: false }, y: { display: false, beginAtZero: true, max: yMax } }
+        },
+        plugins: [arrowPlugin]
+    });
+})();
+</script>
+{% endif %}
+
+<div class="panel">
+    <h2>최근 경기</h2>
+    {% if matches %}
+    <table>
+        <thead><tr><th>날짜</th><th>맵</th><th>스코어</th><th></th></tr></thead>
+        <tbody>
+        {% for m in matches %}
+        <tr>
+            <td>{{ m.played_at[:10] }}</td>
+            <td>
+                {% if is_admin %}
+                <form class="inline" method="post" action="/match/{{ m.id }}/map">
+                    <input type="text" name="map_name" value="{{ m.map_name or '' }}"
+                           placeholder="None" style="width:90px">
+                    <input type="hidden" name="next" value="/">
+                    <button class="ghost" type="submit">저장</button>
+                </form>
+                {% else %}{{ m.map_name or "-" }}{% endif %}
+            </td>
+            <td class="num">{{ m.team_a_rounds if m.team_a_rounds is not none else "?" }} : {{ m.team_b_rounds if m.team_b_rounds is not none else "?" }}</td>
+            <td><a href="/match/{{ m.id }}">상세</a></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="muted">아직 경기가 없습니다.{% if is_admin %} <a href="/upload">스크린샷 업로드</a>로 시작하세요.{% endif %}</p>
+    {% endif %}
+</div>
+
+{% if is_admin and inbox_count > 0 %}
+<div class="panel" style="border-color: var(--accent);">
+    <form class="inline" method="post" action="/inbox/process">
+        <span class="badge warn">처리 대기 {{ inbox_count }}건</span>
+        인박스 폴더(data/inbox/)에 이미지가 있습니다.
+        <button type="submit">지금 처리</button>
+    </form>
+</div>
+{% endif %}
+
+{% if is_admin and pending %}
+<div class="panel">
+    <h2>검토 대기</h2>
+    <table>
+        <thead><tr><th>경기</th><th>추가 시각</th><th></th></tr></thead>
+        <tbody>
+        {% for m in pending %}
+        <tr>
+            <td>#{{ m.id }}
+                <form class="inline" method="post" action="/match/{{ m.id }}/map">
+                    <input type="text" name="map_name" value="{{ m.map_name or '' }}"
+                           placeholder="None" style="width:90px">
+                    <input type="hidden" name="next" value="/">
+                    <button class="ghost" type="submit">저장</button>
+                </form>
+            </td>
+            <td class="muted">{{ m.created_at[:16] }}</td>
+            <td><a href="/review/{{ m.id }}">검토 →</a></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endblock %}

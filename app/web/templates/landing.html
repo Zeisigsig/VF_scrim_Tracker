@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}로그인 · 내전 트래커{% endblock %}
+{% block content %}
+<div class="grid2">
+    <div class="panel">
+        <h2>로그인</h2>
+        {% if error %}<p class="notice-dup" style="padding:8px 10px;border-radius:6px;">
+            디스코드 닉 또는 비밀번호가 올바르지 않습니다.</p>{% endif %}
+        <form method="post" action="/login" class="stack">
+            <label>디스코드 닉
+                <input type="text" name="username" autocomplete="username" required autofocus>
+            </label>
+            <label>비밀번호
+                <input type="password" name="password" autocomplete="current-password" required>
+            </label>
+            <button type="submit">로그인</button>
+        </form>
+        <p class="muted" style="margin-top:12px;">
+            처음이신가요? 어드민이 발급한 <b>기본 비밀번호</b>로 로그인하면
+            비밀번호 변경 화면으로 안내됩니다. 비밀번호를 잊었다면 어드민에게 초기화를 요청하세요.
+        </p>
+    </div>
+    <div class="panel">
+        <h2>내전 참가자 티어 분포</h2>
+        {% if tier_dist %}
+        <canvas id="tierChart" height="240"></canvas>
+        {% else %}
+        <p class="muted">아직 집계할 참가 기록이 없습니다.</p>
+        {% endif %}
+    </div>
+</div>
+
+{% if tier_dist %}
+<script>
+const tierLabels = {{ tier_dist | map(attribute='tier') | list | tojson }};
+const tierCounts = {{ tier_dist | map(attribute='count') | list | tojson }};
+const tierColors = {
+    '아이언': '#6b7280', '브론즈': '#a16207', '실버': '#9ca3af', '골드': '#eab308',
+    '플래티넘': '#22d3ee', '다이아': '#c084fc', '초월': '#4ade80', '불멸': '#f43f5e',
+    '레디언트': '#fde047', '미설정': '#3f3f46'
+};
+new Chart(document.getElementById('tierChart'), {
+    type: 'doughnut',
+    data: {
+        labels: tierLabels,
+        datasets: [{
+            data: tierCounts,
+            backgroundColor: tierLabels.map(t => (tierColors[t] || '#64748b')),
+            borderColor: '#1a1c20', borderWidth: 2,
+        }]
+    },
+    options: {
+        plugins: { legend: { position: 'right', labels: { color: '#e6e6e6' } } }
+    }
+});
+</script>
+{% endif %}
+{% endblock %}
