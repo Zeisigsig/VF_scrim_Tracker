@@ -7,4 +7,5 @@ data/*.bak-*
 data/screenshots/
 data/inbox/
 .idea/
+.claude/
 .pytest_cache/
