@@ -1,0 +1,22 @@
+[Unit]
+Description=VF Scrim Tracker (발로란트 내전 퍼포먼스 트래커)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vf
+Group=vf
+WorkingDirectory=/home/vf/VF_scrim_Tracker
+# uv 설치 경로(기본 ~/.local/bin)를 PATH 에 노출. .env 는 WorkingDirectory 의
+# 파일을 config.py(load_dotenv)가 직접 읽으므로 EnvironmentFile 불필요.
+Environment=PATH=/home/vf/.local/bin:/usr/local/bin:/usr/bin:/bin
+# 기동 전 스키마 마이그레이션(멱등). 실패 시 서버 시작 안 함.
+ExecStartPre=/home/vf/.local/bin/uv run alembic upgrade head
+# tailscale funnel 이 앞단 HTTPS 종단 → 127.0.0.1 로만 바인딩(공인 IF 미노출).
+ExecStart=/home/vf/.local/bin/uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
