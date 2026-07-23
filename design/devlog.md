@@ -427,3 +427,38 @@ riot 닉 없던 유저 13명 중 12명을 **확정경기 Henrik 로스터에서 
 7. 백업 cron 등록
 
 부차 백로그: head_to_head UI 재디자인, 나머지 유저 puuid 보강(현재 46명), `믹스` 영문 요원명 매핑.
+
+## 2026-07-23 — 배포 완료(A안) · 디스코드 봇 통합
+
+### 결과
+GCP **e2-micro 무료티어 1대**에 트래커 웹 + 디스코드 봇을 **함께** 올려 배포 완료. HTTPS는 Tailscale Funnel. 기존 f1-micro(봇 전용)는 삭제.
+
+### VM 구성
+- **인스턴스:** GCP e2-micro(1GB RAM), Ubuntu 22.04 LTS Minimal, 표준 영구디스크(무료 조건: e2-micro + us 리전 + pd-standard). swap 1GB 추가(1GB RAM 여유).
+- **서비스 유저 `vf`**, 앱은 `/home/vf/`에 clone. uv로 의존성 관리.
+- **트래커:** systemd `vf.service`(`deploy/vf.service` → `/etc/systemd/system/`). `uv run uvicorn app.main:app --host 127.0.0.1 --port 8000`, 기동 전 `alembic upgrade head`(ExecStartPre). 127.0.0.1 바인딩(Funnel이 앞단 HTTPS 종단).
+- **봇:** systemd `vf-bot.service`(직접 작성해 `/etc/systemd/system/`). `~/VF_discordBot/.venv/bin/python main.py`, WorkingDirectory=`src`, `.env`의 `DISCORD_BOT_TOKEN`. 의존성 `discord.py`+`python-dotenv`(레포에 requirements 없어 별도 `uv venv`+`uv pip install`).
+- **HTTPS:** `tailscale funnel --bg 8000` → 공개 주소 발급(GitHub 계정 tailnet). 로컬엔 Tailscale 불필요(Funnel이 공개 URL).
+- **DB 시딩:** 로컬 교정본 `data/scrim.db`(56경기/559 MatchPlayer, alembic head=`0004_users`)를 브라우저 SSH 업로드로 이관. 이미지 dir·screenshots는 미이관(스펙: VM은 이미지 미저장).
+- **VM `.env`:** `ENABLE_LOCAL_UPLOAD=0`(웹 `/upload`·`/inbox` 비활성), `HENRIK_API_KEY` 필수(**/api/ingest가 enrich 실행 → 팀/라운드 권위화(2026-07-22 재발방지)가 적재 시점 작동**), `SECRET_KEY`·`INGEST_API_KEY` VM에서 신규 생성. `DEFAULT_PASSWORD`·`ADMIN_USERNAMES`는 로컬과 동일(어드민 권한 유지).
+- **백업:** `deploy/backup.sh`(sqlite `.backup` 온라인 스냅샷 + 14일 보존) → vf crontab `0 4 * * *`. cron은 Ubuntu minimal에 별도 설치.
+
+### 로컬(업로드측)
+- `.env`에 `CLOUD_BASE_URL`(Funnel 주소, trailing slash 제거)·`INGEST_API_KEY`(VM과 동일) 추가, `ENABLE_LOCAL_UPLOAD=1` 유지.
+- **업로드 흐름:** 로컬 `uv run python -m app.ingest.push <img>` → 제자리 OCR → 추출 JSON만 VM `/api/ingest`로 POST(X-Ingest-Key 인증) → VM 웹 `/review`에서 확정.
+- **왕복 검증:** 기존 스크린샷 push → VM이 파일명 중복 `skip` 응답. 인증·연결·DB접근 정상 확인.
+
+### 배포 중 삽질 메모(브라우저 SSH)
+- **긴 한 줄 붙여넣기 위험:** GCP 브라우저 SSH가 긴 명령에 공백을 끼워 넣거나 heredoc `EOF`를 못 닫아 `>` 연속프롬프트에 걸림. → 명령을 짧게 끊고, 파일은 `printf '%s\n' ... > 파일` 또는 홈에 만들고 `sudo cp`로 설치하는 방식이 안전.
+- **polkit vs sudo:** 붙여넣기 쪼개짐으로 `sudo`가 떨어진 `systemctl daemon-reload`가 일반유저로 돌아 "authentication is required" polkit이 뜸. GCP는 root 비번 없이 passwordless sudo → `sudo`만 제대로 붙으면 됨.
+
+### 배포 후 운영 확인(Q&A)
+- **디코닉 변경:** 유저 관리에서 닉 변경은 `Player.discord_name`(표시용)만 바꿈. 로그인용 `User.username`은 안 바뀌고, `ensure_accounts`가 기존 pid/이름 매칭으로 중복계정도 안 만듦. → 로그인 계정명 자체 변경은 별도 기능 필요(백로그).
+- **티어 변경 → 재계산:** 티어 변경(`set_manual_tier`)은 `PlayerTier(source="manual")` 삽입만 하고 자동 재계산 안 함. 반영하려면 수동 `python -m app.calibration.recompute` 필요. 주의: recompute는 `_rank_prior`가 날짜필터 없이 최신 티어를 쓰므로 **과거 전 경기에 현재 티어를 소급** 적용.
+- **스크린샷 업로드(배포 후):** 로컬에서 `uv run python -m app.ingest.push <img>` → VM `/review`에서 확정(VM은 `ENABLE_LOCAL_UPLOAD=0`이라 웹 업로드 불가). 믹스가 게코로 오등록되는 건 확정 전 `/review`에서 수동 교정.
+
+### 백로그 정식 등록(task)
+운영 요청 반영해 할 일 등록: 리더보드 **판수별 정렬**·**유저 검색**(정렬과 별개), 믹스 요원 매핑, (선택) 백업본 로컬 scp 오프사이트화, (선택) 외부 IP 제거 $0 구성, 로그인 계정 username 변경.
+
+### 남은 백로그
+`믹스` 영문 요원명 매핑 · 리더보드 판수별 정렬·유저 검색 · 로그인 username 변경 · (선택) 백업본 오프사이트 scp · (선택) 외부 IP 제거 $0 구성. (head_to_head UI 재디자인 완료 · 유저 puuid 보강은 사용자 직접 처리.)
