@@ -225,11 +225,17 @@ def _store_pending_match(
     match.extraction_raw = result.model_dump()
     if not match.map_name:
         match.map_name = result.map_name
-    # 폼에 스코어 미입력 시 추출값으로 검토 화면을 미리 채운다(확신 없으면 None).
-    if match.team_a_rounds is None:
+    # Henrik 매칭 성공 시 팀별 라운드는 권위값(teams[].won) → 폼/OCR 손입력보다 우선.
+    # (2026-07-22 승패 대규모 오류: 승자 점수를 A칸에 잘못 넣던 문제 재발 방지.)
+    if result.henrik_match_id and result.team_a_rounds is not None:
         match.team_a_rounds = result.team_a_rounds
-    if match.team_b_rounds is None:
         match.team_b_rounds = result.team_b_rounds
+    else:
+        # 폼에 스코어 미입력 시 추출값으로 검토 화면을 미리 채운다(확신 없으면 None).
+        if match.team_a_rounds is None:
+            match.team_a_rounds = result.team_a_rounds
+        if match.team_b_rounds is None:
+            match.team_b_rounds = result.team_b_rounds
     session.commit()
     return match
 

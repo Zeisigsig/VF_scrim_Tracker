@@ -38,7 +38,7 @@ def _parse_roster(match: dict) -> list[dict]:
             "name": p.get("name") or "", "tag": p.get("tag") or "",
             "puuid": p.get("puuid"), "agent_en": agent_en,
             "k": st.get("kills"), "d": st.get("deaths"), "a": st.get("assists"),
-            "score": st.get("score"),
+            "score": st.get("score"), "team_id": p.get("team_id"),
         })
     return out
 
@@ -104,6 +104,16 @@ def _total_rounds(match: dict) -> int | None:
         if won is not None and lost is not None:
             return won + lost
     return None
+
+
+def _team_rounds(match: dict) -> dict[str, int]:
+    """team_id → 획득 라운드(won). 승패 절대정답(스펙 §7)."""
+    out: dict[str, int] = {}
+    for t in match.get("teams") or []:
+        tid, r = t.get("team_id"), t.get("rounds") or {}
+        if tid is not None and r.get("won") is not None:
+            out[tid] = r["won"]
+    return out
 
 
 def _cost(row: ExtractedRow, r: dict, rounds: int | None) -> float | None:
@@ -310,6 +320,36 @@ class Enricher:
                 row.first_kills = obj["fk"]
                 row.plants = obj["plants"]
                 row.defuses = obj["defuses"]
+
+        # 팀 소속·팀별 라운드를 Henrik 권위값으로 확정(스펙 §7). OCR 팀칸/점수칸
+        # 오배정으로 승패가 뒤집히던 문제(2026-07-22 대규모 교정)의 재발 방지.
+        # A/B 라벨은 임의라 '현재 A로 찍힌 다수'가 속한 팀을 A로 유지(표시 안정).
+        tr = _team_rounds(match)
+        row_tid = {i: roster[j]["team_id"] for i, j in mapping.items()
+                   if roster[j]["team_id"] is not None}
+        if len(tr) == 2 and row_tid:
+            from collections import Counter
+            a_side = Counter(
+                row_tid[i] for i in row_tid if result.rows[i].team == "A"
+            )
+            tidA = a_side.most_common(1)[0][0] if a_side else next(iter(tr))
+            tidB = next(t for t in tr if t != tidA)
+            for i, tid in row_tid.items():
+                new_team = "A" if tid == tidA else "B"
+                if result.rows[i].team != new_team:
+                    corrections.append(Correction(
+                        nickname=result.rows[i].nickname, field="팀",
+                        old=result.rows[i].team, new=new_team,
+                    ))
+                    result.rows[i].team = new_team
+            new_a, new_b = tr[tidA], tr[tidB]
+            if (result.team_a_rounds, result.team_b_rounds) != (new_a, new_b):
+                corrections.append(Correction(
+                    nickname="", field="라운드",
+                    old=f"{result.team_a_rounds}-{result.team_b_rounds}",
+                    new=f"{new_a}-{new_b}",
+                ))
+                result.team_a_rounds, result.team_b_rounds = new_a, new_b
 
         if not result.map_name:
             result.map_name = (match.get("metadata") or {}).get("map", {}).get("name")

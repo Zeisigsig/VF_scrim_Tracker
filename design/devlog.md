@@ -386,3 +386,44 @@
 
 ### 남은 작업
 - UI 재디자인(방향 열림: 천적 랭킹, 상대별 승패 등) · VM 업로드 방법 별도 킵 · 영구 미복구 10판.
+
+## 2026-07-22 — 승패 대규모 오류 발견·교정 · Henrik 팀/결과 권위화
+
+### 증상 · 원인(체계적)
+사용자 지적: "실제 승패와 기록 승패가 다른 경기가 있다." 전수 조사 결과 **산발이 아니라 체계적 버그**. 확정 56경기 중 **28경기가 오답**.
+- **근본 원인:** 검토 화면 스코어 입력 시 배너의 **큰 숫자(승리팀 13)를 거의 항상 A칸**에 넣음. 팀 A는 OCR 규칙상 "초록=업로더 팀"이라, **업로더 팀이 진 경기**에서는 A칸에 상대(승자) 점수가 들어가 `_match_result`가 그 경기 **10명 전원의 승패를 반전**. OCR이 스코어 배너를 대부분 못 읽어(None) 사람이 손입력 → 이 실수가 절반 가까이 누적. (개인 TACR·표시점수는 개인 ACS 기반이라 무관, **OpenSkill은 승자 기준이라 오염** → 재계산 필수.)
+- **부차 원인:** 행 배경색 판정(`_team_of_row`)이 **저채도·어두운 행**(초록·빨강 픽셀 둘 다 ~0%)에서 동전던지기 → 한 명이 반대팀으로 오배정돼 4:6 불균형. 반복 피해자 **Étoile**(어둡게 렌더). match 17·30·51 Étoile, 28 aziiiiiiin.
+
+### 검증 방법(권위)
+- **Henrik `teams[].won` + player `team_id`(Red/Blue)** 가 팀·결과의 절대 정답. 46경기(henrik_match_id 보유)를 전수 대조: 저장 MatchPlayer를 puuid/name#tag로 로스터에 매핑 → 각자 실제 소속팀·승패 vs 저장 비교.
+- 초기에 head_to_head 킬그래프로 이분할했으나 **A/B 라벨을 저장값에 정렬**시켜 승패 방향이 틀림(Étoile를 승리팀으로 오판) → **Henrik teams[].won로 재검증**해 바로잡음. 교훈: 킬그래프는 "그룹핑"만, **승패 방향은 반드시 teams[].won**.
+- henrik 없는 10경기: 스크린샷 있는 22·23·30·32는 배너 육안 확인(22/23/32 정상, 30 "9 패배 13"→오답). 5·8·9·10·13·14는 스크린샷·henrik 둘 다 없어 확증 불가.
+
+### 교정 범위(적용)
+- **라운드칸 스왑(A↔B 숫자 교환)** — henrik 확정 24경기: 3·11·12·19·21·24·29·31·34·35·36·37·38·40·43·44·45·47·50·52·53·55·56·57.
+- **스왑 + 팀 재배정:** 17(Étoile B→A), 28(aziiiiiiin B→A), 30(Étoile B→A, 스크린샷 기준).
+- **팀 재배정만:** 51(Étoile B→A, 라운드는 이미 맞음).
+- **확증 불가 처리(사용자 결정):** 5·8·9·10·13은 동일 패턴(A=13/B<13, 5:5)이라 **패턴 신뢰로 스왑**. 14(A4/B6)는 팀 배정이 깨졌으나 근거 없어 **보류**.
+- 적용 후 `python -m app.calibration.recompute`로 전 경기 match_ratings·OpenSkill 재계산. DB 백업 선행.
+
+### 재발 방지 — Henrik enrich에 팀·라운드 권위화(#2, 사용자 요청)
+`app/henrik/enrich.py`가 지금은 K/D/A·ACS·요원·닉만 덮어씀. **팀(team_id→A/B)·팀별 라운드**도 권위값으로 가져오도록 확장 → 사람이 스코어칸을 잘못 넣어도 자동 교정. `_parse_roster`에 `team_id` 추가, `teams[].rounds.won` 파싱, `_apply`에서 `row.team`·`ExtractionResult.team_a_rounds/team_b_rounds` 설정(A/B 라벨은 기존 저장 다수결에 맞춰 매핑). henrik 매칭 성공 시에만 적용(실패는 기존 OCR 색판정 유지).
+
+### 적용 완료 (2026-07-22)
+- **승패 교정 실행:** 36건 변경(라운드 스왑 30 + 팀 재배정 4 + 스크린샷/패턴). `recompute` 완료(56경기). 스팟체크: m17 A8/B13·Étoile=A(패), m30 A9/B13·Étoile=A(패, 스크린샷 일치), m51 Étoile=A(승) 정상. m14는 보류대로 미변경. DB 백업 `data/scrim.db.bak-*` 다수 보존.
+- **#2 코드 반영:** `enrich.py` `_team_rounds()` 신설, `_apply`에 팀/라운드 권위화 블록. 또한 `routes.py:_store_pending_match`에서 **henrik 매칭 성공 시 팀별 라운드를 폼/OCR 손입력보다 우선**(라운드 보정은 `Correction(field="라운드")`, 팀 보정은 `field="팀"`으로 검토 배너에 표시). 합성 테스트로 A라벨 유지·라운드 스왑·보정기록 검증. 기존 17테스트 통과.
+
+### Riot ID 백필 (2026-07-22)
+riot 닉 없던 유저 13명 중 12명을 **확정경기 Henrik 로스터에서 KDA 정확일치로 신원 복구**. 방법: 각 미등록 유저의 MatchPlayer (k,d,a)를 그 경기 henrik 로스터와 정확 대조 → 기존 등록 신원(puuid·name#tag) 제외 → **같은 puuid가 2판 이상** 나온 것만 채택(1판 우연충돌 배제). puuid까지 저장해 이후 enrich 매칭이 name#tag보다 정확해짐. **id78은 2계정**(발로란트 잼민이들 과추 자르기#마렵네 / 코리안 전용 변기 빅나티#넣고 내려) 모두 추가. 결과 **88/89명** 보유. 남은 id35 '대기'는 henrik 확정경기가 없어 복구 불가(플레이스홀더 추정).
+
+### 다음 세션(내일) 할 일 — 배포(A안) 마무리
+승패·Riot 백필은 종료. 다음은 GCP 배포(아키텍처 A안, 코드·로컬검증·GitHub push는 완료 상태):
+1. `deploy/vf.service`(systemd)·`deploy/backup.sh` 작성
+2. GCP e2-micro VM 생성(us-central1/west1/east1) · `git clone` · `uv sync`
+3. `data/scrim.db`만 scp 시딩(스크린샷 dir 불필요)
+4. VM `.env` 세팅(실 시크릿, `ENABLE_LOCAL_UPLOAD=0`)
+5. systemd 기동 + `tailscale funnel 8000`(HTTPS)
+6. 로컬 `.env`에 `CLOUD_BASE_URL`·`INGEST_API_KEY` 넣고 `python -m app.ingest.push`로 실 스크린샷 최종 왕복 검증
+7. 백업 cron 등록
+
+부차 백로그: head_to_head UI 재디자인, 나머지 유저 puuid 보강(현재 46명), `믹스` 영문 요원명 매핑.
