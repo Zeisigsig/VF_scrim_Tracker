@@ -39,7 +39,12 @@ def _iter_images(args: list[str]):
             print(f"skip (이미지 아님/없음): {a}", file=sys.stderr)
 
 
-def _push_one(client: httpx.Client, path: Path) -> None:
+def push_extraction(client: httpx.Client, path: Path) -> dict:
+    """path 를 로컬 OCR 하고 추출 JSON 을 /api/ingest 로 전송, 응답 dict 반환.
+
+    파일명이 명명 규칙({YYYYMMDD}_{맵}_{세션}_{판})과 맞으면 맵/시간을 채운다.
+    응답은 {"skipped": ...}(이미 적재됨) 또는 {"review_url": ...}(신규 생성).
+    """
     result = extract_scoreboard(path)  # 로컬 OCR
     parsed = _parse(path.name)
     map_name = parsed[3] or "" if parsed else ""
@@ -56,7 +61,11 @@ def _push_one(client: httpx.Client, path: Path) -> None:
         },
     )
     resp.raise_for_status()
-    data = resp.json()
+    return resp.json()
+
+
+def _push_one(client: httpx.Client, path: Path) -> None:
+    data = push_extraction(client, path)
     if "skipped" in data:
         print(f"skip (이미 적재됨): {path.name}")
     else:

@@ -183,7 +183,7 @@ AGENT_EN_TO_KR: dict[str, str] = {
     "sova": "소바", "breach": "브리치", "skye": "스카이", "kay/o": "케이오",
     "fade": "페이드", "gekko": "게코", "tejo": "테호",
     "brimstone": "브림스톤", "omen": "오멘", "viper": "바이퍼", "astra": "아스트라",
-    "harbor": "하버", "clove": "클로브",
+    "harbor": "하버", "clove": "클로브", "miks": "믹스",
     "killjoy": "킬조이", "cypher": "사이퍼", "sage": "세이지", "chamber": "체임버",
     "deadlock": "데드록", "vyse": "바이스", "veto": "비토",
 }
