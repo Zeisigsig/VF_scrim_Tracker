@@ -778,7 +778,7 @@ def _age_key(discord: str | None) -> int:
     return 1900 + yy if yy >= 30 else 2000 + yy
 
 
-def _leaderboard_rows(session: Session, min_games: int, by_age: bool = False) -> list[dict]:
+def _leaderboard_rows(session: Session, min_games: int, sort: str = "age") -> list[dict]:
     stmt = (
         select(
             Player.id, Player.display_name, Player.discord_name, Player.departed,
@@ -812,12 +812,18 @@ def _leaderboard_rows(session: Session, min_games: int, by_age: bool = False) ->
             "tier_value": tier_value,
             "tier_name": config.tier_name(tier_value) if tier_value is not None else None,
         })
-    if by_age:
-        rows.sort(key=lambda r: (_age_key(r["discord_name"]), r["display_name"]))
-        # 서버장(Vice)은 나이순일 때만 맨 위 고정. 조정점수순에선 실제 순위대로.
-        rows.sort(key=lambda r: 0 if (r["discord_name"] or "").strip() == SERVER_OWNER else 1)
-    else:
+    if sort == "score":
         rows.sort(key=lambda r: r["adj_score"], reverse=True)
+    elif sort == "games":
+        # 판수 많은 순(내림). 동률은 조정점수 높은 순으로 안정 정렬.
+        rows.sort(key=lambda r: (-r["games"], -r["adj_score"], r["display_name"]))
+    elif sort == "games_asc":
+        # 판수 적은 순(오름). 동률은 조정점수 높은 순.
+        rows.sort(key=lambda r: (r["games"], -r["adj_score"], r["display_name"]))
+    else:  # age (기본)
+        rows.sort(key=lambda r: (_age_key(r["discord_name"]), r["display_name"]))
+        # 서버장(Vice)은 나이순일 때만 맨 위 고정. 다른 정렬에선 실제 순위대로.
+        rows.sort(key=lambda r: 0 if (r["discord_name"] or "").strip() == SERVER_OWNER else 1)
     return rows
 
 
@@ -844,18 +850,28 @@ def _score_distribution(rows: list[dict], my_player_id: int | None, nbins: int =
 @router.get("/leaderboard", response_class=HTMLResponse)
 def leaderboard(
     request: Request, min_games: int = 1, tier: str = "", sort: str = "age",
+    q: str = "",
     session: Session = Depends(get_session), user: AuthUser = Depends(require_user),
 ):
-    # 기본은 모두 나이순. 어드민만 조정점수순으로 전환 가능(일반 유저는 점수가 가려져 무의미).
-    by_score = user.is_admin and sort == "score"
-    rows = _leaderboard_rows(session, min_games, by_age=not by_score)
+    # 나이순·판수순은 전원, 조정점수순은 어드민만(일반 유저는 점수가 가려져 무의미).
+    allowed = {"age", "games", "games_asc"} | ({"score"} if user.is_admin else set())
+    if sort not in allowed:
+        sort = "age"
+    rows = _leaderboard_rows(session, min_games, sort=sort)
     # 특정 티어 선택 시 그 티어만(수동 티어 없는 유저는 자동 제외).
     if tier:
         rows = [r for r in rows if r["tier_name"] == tier]
+    # 닉네임/디코닉 부분일치 검색 (정렬·필터와 별개).
+    ql = q.strip().lower()
+    if ql:
+        rows = [
+            r for r in rows
+            if ql in (r["display_name"] or "").lower()
+            or ql in (r["discord_name"] or "").lower()
+        ]
     return templates.TemplateResponse(
         request, "leaderboard.html",
-        {"rows": rows, "min_games": min_games, "tier": tier,
-         "sort": "score" if by_score else "age",
+        {"rows": rows, "min_games": min_games, "tier": tier, "q": q, "sort": sort,
          "tier_names": list(config.TIER_TABLE.keys())},
     )
 

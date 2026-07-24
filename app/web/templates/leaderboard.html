@@ -4,36 +4,49 @@
 <div class="panel">
     <div class="lb-head">
         <h2>리더보드</h2>
-        {% if is_admin %}
         <div class="sort-toggle">
-            <a class="btn-sort {% if sort != 'score' %}active{% endif %}" title="나이순"
-               href="/leaderboard?min_games={{ min_games }}&tier={{ tier|urlencode }}&sort=age">@</a>
+            <a class="btn-sort {% if sort == 'age' %}active{% endif %}" title="나이순"
+               href="/leaderboard?min_games={{ min_games }}&tier={{ tier|urlencode }}&q={{ q|urlencode }}&sort=age">@</a>
+            {% if is_admin %}
             <a class="btn-sort {% if sort == 'score' %}active{% endif %}" title="조정점수순"
-               href="/leaderboard?min_games={{ min_games }}&tier={{ tier|urlencode }}&sort=score">!</a>
+               href="/leaderboard?min_games={{ min_games }}&tier={{ tier|urlencode }}&q={{ q|urlencode }}&sort=score">!</a>
+            {% endif %}
         </div>
-        {% endif %}
     </div>
-    <form class="inline" method="get" action="/leaderboard">
-        <label>티어
-            <select name="tier">
-                <option value="">전체</option>
-                {% for t in tier_names %}
-                <option value="{{ t }}" {% if t == tier %}selected{% endif %}>{{ t }}</option>
-                {% endfor %}
-            </select>
-        </label>
-        <label>최소 경기 수
-            <input class="narrow" type="number" name="min_games" value="{{ min_games }}" min="1">
-        </label>
-        <button type="submit">적용</button>
+    <form class="inline lb-filter" method="get" action="/leaderboard">
+        <input type="hidden" name="sort" value="{{ sort }}">
+        <div class="lb-filter-left">
+            <label>최소 경기 수
+                <input class="narrow" type="number" name="min_games" value="{{ min_games }}" min="1">
+            </label>
+            <button type="submit">적용</button>
+        </div>
+        <div class="lb-filter-right">
+            <label>티어
+                <select name="tier">
+                    <option value="">전체</option>
+                    {% for t in tier_names %}
+                    <option value="{{ t }}" {% if t == tier %}selected{% endif %}>{{ t }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>검색
+                <input type="text" name="q" value="{{ q }}" placeholder="닉네임">
+            </label>
+        </div>
     </form>
-    <p class="muted">{% if sort == 'score' %}수축 조정 평균 표시점수순 (empirical Bayes, m=3){% else %}나이순 (출생연도 빠른 순, 9X→0X){% endif %}.
-    {% if tier %}티어 필터: <b>{{ tier }}</b> (수동 티어 미설정 유저는 제외){% endif %}</p>
+    <p class="muted">{% if sort == 'score' %}수축 조정 평균 표시점수순 (empirical Bayes, m=3){% elif sort == 'games' %}판수순 (많은 순){% else %}나이순 (출생연도 빠른 순, 9X→0X){% endif %}.
+    {% if tier %}티어 필터: <b>{{ tier }}</b> (수동 티어 미설정 유저는 제외){% endif %}
+    {% if q %}검색: <b>{{ q }}</b>{% endif %}</p>
     {% if not is_admin %}<p class="muted">남의 조정 점수는 가려집니다(•••). 본인 점수만 확인할 수 있어요.</p>{% endif %}
     {% if rows %}
     <table>
         <thead>
-            <tr><th>#</th><th>유저</th><th>티어</th><th class="num">판수</th><th class="num">조정 점수</th>
+            <tr><th>#</th><th>유저</th><th>티어</th>
+                <th class="num sortable">
+                    <a href="/leaderboard?min_games={{ min_games }}&tier={{ tier|urlencode }}&q={{ q|urlencode }}&sort={{ 'games_asc' if sort == 'games' else 'games' }}">판수{% if sort == 'games' %} ▼{% elif sort == 'games_asc' %} ▲{% endif %}</a>
+                </th>
+                <th class="num">조정 점수</th>
                 <th class="num">평균 TACR</th><th class="num">OpenSkill</th></tr>
         </thead>
         <tbody>
