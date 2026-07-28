@@ -502,3 +502,9 @@ Henrik 무료티어 `v4/matches`는 **최근 5~6판만** 줘서 07-24 경기가 
 
 ### 기존 플로우 영향
 새 파일 3개(`app/tools/`)만 추가, 기존 코드 무수정. 도구를 안 돌리면 웹앱·OCR 업로드·`/review` 흐름 변화 없음. OpenSkill은 확정 순서 누적이라 백데이트 경기를 지금 넣으면 순서만 어긋남(늦게 올린 스크린샷 확정과 동일 성질, 승패·경기별 TACR 무관) → 완전 정합 원하면 `python -m app.calibration.recompute`. 두 경기는 이미 VM에 confirmed로 적재 완료.
+
+### 유저 관리 "티어 반영 재계산" 버튼
+유저 관리 페이지 우측 상단에 어드민 전용 버튼 추가. 현재 등록된 수동 티어 기준으로 전 경기 TACR·OpenSkill을 소급 재계산(`POST /players/recompute` → `recompute_all()` → `/players?recomputed=N` 리다이렉트 + 완료 배너). confirm 창으로 오조작 방지. sync 라우트라 FastAPI가 스레드풀에서 실행 → 이벤트 루프 안 막음. **VM 부담 우려 검증:** 확정 56경기 기준 `recompute_all()` = 0.41초·피크 55MB·네트워크 0회(내부 DB 재계산만) → 1GB VM에서 무시 가능.
+
+### VM 권한 구조 (배포 후 운영 삽질 정리)
+코드 배포(`git pull`+`systemctl restart`) 중 계정/sudo 혼선. 원인=**권한 분리(least privilege) 설계**: ① `vf`는 앱 전용 서비스 계정이라 **sudoers에 없고 비번도 잠김** → vf 상태에서 `sudo`는 무조건 실패("try again"). ② GCP 브라우저 SSH의 본인 계정은 **passwordless sudo**. 그래서 **파일/DB 작업(git pull·uv·CLI)은 `sudo su - vf`로 전환해 vf에서**, **시스템 작업(`systemctl restart vf`)은 `exit` 후 GCP 계정에서** 해야 함. 배포 순서: (vf에서)`cd ~/VF_scrim_Tracker && git pull` → `exit` → (GCP 계정)`sudo systemctl restart vf`. `restart vf`는 웹(`vf.service`)만 재시작(봇 `vf-bot.service`는 별개). restart 필요 이유=uvicorn이 시작 시 코드를 메모리로 import하고 운영은 `--reload` 없이 돌려 라우트 코드 변경이 재시작 없이는 반영 안 됨.
