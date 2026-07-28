@@ -462,3 +462,43 @@ GCP **e2-micro 무료티어 1대**에 트래커 웹 + 디스코드 봇을 **함�
 
 ### 남은 백로그
 `믹스` 영문 요원명 매핑 · 리더보드 판수별 정렬·유저 검색 · 로그인 username 변경 · (선택) 백업본 오프사이트 scp · (선택) 외부 IP 제거 $0 구성. (head_to_head UI 재디자인 완료 · 유저 puuid 보강은 사용자 직접 처리.)
+
+## 2026-07-24~25 — 믹스 매핑·업로드 웹 GUI·개명·리더보드 개선
+
+### 믹스 = Miks 영문 요원명 매핑
+`믹스`는 실제 확정경기 28행에서 쓰인 컨트롤러 라벨인데 `AGENT_EN_TO_KR`(Henrik 영문→한글 보정 맵)에만 빠져 있어 enrich 자동교정이 안 됐음. `믹스`=**Miks**(2026 시즌2 Act2 신규 컨트롤러, 3/18 출시 — 유일하게 힐 가능한 컨트롤러)임을 확인, `AGENT_EN_TO_KR["miks"]="믹스"` 한 줄 추가. lookup이 `.lower()` 하므로 대소문자 무관. 이후 적재/enrich되는 경기부터 자동 인식.
+
+### 업로드 로컬 웹 GUI (A안용)
+CLI `push.py`만 있던 로컬 업로드에 브라우저 드래그앤드롭 GUI 추가(`app/ingest/webui.py`). `uv run python -m app.ingest.webui` → 127.0.0.1:8765 자동 오픈, 여러 장 순차 OCR → VM `/api/ingest` POST → 각 파일 상태(✅적재/↩︎중복/⚠️실패)·검토 링크 표시. push.py 전송 로직을 `push_extraction()`으로 분리해 CLI/웹 공용화. 새 의존성 없음(fastapi/uvicorn/httpx 기존 것). **주의:** 메인 웹앱의 `/upload`(upload.html)는 로컬 실행 시에만 뜨고 로컬 DB에 저장하는 옛 단일PC 흐름 — A안(VM 정본)엔 안 맞아 webui.py가 정답 경로. VM은 OCR 라이브러리 없어 라이브 사이트 직접 업로드는 불가(설계상).
+
+### 03 승진 → 97 승진 개명 (출생연도 정정)
+디코닉 앞 2자리는 출생연도(03=2003, 97=1997). Liebe(player id=1)의 연도가 03으로 잘못 들어가 97로 정정. `players.discord_name`(id=1)·`users.username`(로그인 아이디, user id=31) 두 곳 갱신. 정본 DB는 VM이라 VM에서 직접 SQL 실행(로컬 사본도 동일 반영). 로그인은 `username`으로 조회(routes.py:113)라 이후 `97 승진`으로 로그인. ADMIN_USERNAMES에 승진 없어 권한 영향 없음. **로그인 계정 개명은 아직 UI 없음** — 개별건은 VM DB 직접 SQL로 처리 중(백로그 유지).
+
+### 리더보드 판수 정렬(헤더 클릭)·유저 검색·필터 레이아웃
+- **판수 정렬:** `판수` 컬럼 헤더를 클릭 링크로. 클릭 시 내림(▼)↔오름(▲) 토글, 현재 방향 화살표 표시. `_leaderboard_rows`에 `sort="games"`(내림)·`"games_asc"`(오름) 케이스, 동률은 조정점수 높은 순 안정정렬. 전원 사용 가능(판수는 공개). 기존 `@`나이·`!`조정점수(admin) 토글은 유지, 임시로 넣었던 `#` 버튼은 헤더 방식으로 대체.
+- **유저 검색:** 라우트 `q` 파라미터로 닉네임/디코닉 부분일치·대소문자 무관 필터. 정렬·티어필터와 독립(hidden `sort` 필드로 현재 정렬 유지, 정렬 링크도 `q` 전파).
+- **레이아웃:** 필터 줄을 flex `space-between`으로 분리 — 좌측 최소 경기 수+적용, 우측 티어+검색(`.lb-filter` CSS 신설).
+- 변경: `app/web/routes.py`·`templates/leaderboard.html`·`static/style.css`. 헬퍼 정렬 단조성·템플릿 렌더 검증.
+
+### 배포
+각 코드 변경은 커밋 후 VM `git pull` + `systemctl restart vf`로 반영(새 의존성·마이그레이션 없음). 개명 SQL만 코드 아닌 VM DB 직접 실행. GUI(webui.py)는 로컬 전용이라 VM엔 올라가도 실행 안 함.
+
+## 2026-07-28 — 유저 승패 조회 CLI·Henrik 누락경기 복구 적재 도구
+
+### 발단: 세훈 스카이 경기 1승 누락 의심
+세훈이 "스카이로 1승1패인데 그 1승이 안 들어갔다"고 제보. 정본 DB는 VM이고 로컬 사본은 07-24 스냅샷이라 최근 경기·수정이 없어 로컬로는 확인 불가. → VM 조회용·복구용 CLI를 만들어 해결.
+
+### `app/tools/player_record.py` — 유저 요원별 승패 조회
+발로닉/디코닉 부분일치로 유저를 찾아 **확정 경기별 팀(A/B)·라운드(A:B)·요원·승패·합계**를 출력. 승패는 `matches.team_a/b_rounds` vs `match_players.team`으로 판정. VM 브라우저 SSH는 본인 GCP 계정으로 붙어 `~`가 앱 경로(`/home/vf/...`)와 달라 안 잡히므로 **`sudo su - vf`로 전환 후 `~/VF_scrim_Tracker`에서 실행**해야 함(레포·DB가 vf 소유).
+
+### Henrik으로 누락 경기 특정 (핵심 삽질)
+Henrik 무료티어 `v4/matches`는 **최근 5~6판만** 줘서 07-24 경기가 사라진 듯 보였음. `/v1/by-puuid/stored-matches/{region}/{puuid}`를 **mode 필터 없이** `size=25`로 뜨니 ~25판 소급 → 07-24 커스텀 6판 확인. started_at은 UTC라 사용자가 말한 "오후 10시 43분"=KST=UTC 13:43로 환산해 **Bind 22:43(스카이 19/10/6)·Split 21:59(체임버 8/17/0)** 두 경기를 match_id로 특정. 상세 조회의 `teams[].won`(승패 절대정답)로 **스카이=승(13:4)·체임버=패(4:13)** 확정 — 제보대로 스카이 1승이 실재하나 트래커엔 아예 누락(내전 데이터 미수신)이었음.
+
+### `app/tools/ingest_match.py` — Henrik match_id로 누락 경기 직접 적재
+스크린샷 없이 Henrik 상세에서 경기를 재구성해 저장하는 CLI. 웹 확정과 **동일한 `save_and_rate()`/`populate_match()` 재사용** → TACR·OpenSkill·헤드투헤드 일관. 팀 Red/Blue를 정렬해 A/B 고정, `teams[].won`을 team_a/b_rounds에, 요원 영문→한글·역할·ACS(score/rounds)·K/D/A로 `ConfirmedRow` 구성.
+- **미등록 Riot 계정 처리:** 확정 모드에선 미등록이 하나라도 있으면 **저장 없이 중단·목록 출력**(로비 불완전 방지). `--link "Name#Tag:player_id"`로 기존 player에 계정(puuid는 로스터에서)을 연결 후 재실행. 이번 두 경기의 `Bin#콩 이`가 player로는 있으나 Riot 계정 미연결이라 이 경로로 해결.
+- **`--review` 모드:** pending으로 저장해 웹 `/review`에서 사람이 확인 후 확정(일반 업로드와 동일 흐름). 로스터를 `ExtractionResult` rows로 채우고 등록 유저는 display_name으로 넣어 검토창 자동 매칭, 미등록은 Riot 닉으로 넣어 검토창에서 직접 매칭(중단 안 함). **디폴트는 바로 확정**(Henrik 승패가 절대정답이라 손볼 게 없음), `--review`는 옵션.
+- **중복 방지:** `external_match_id=henrik_match_id`(unique) + 명시적 skip → 재실행 멱등. `--dry-run`으로 저장 전 로스터·승패 미리보기.
+
+### 기존 플로우 영향
+새 파일 3개(`app/tools/`)만 추가, 기존 코드 무수정. 도구를 안 돌리면 웹앱·OCR 업로드·`/review` 흐름 변화 없음. OpenSkill은 확정 순서 누적이라 백데이트 경기를 지금 넣으면 순서만 어긋남(늦게 올린 스크린샷 확정과 동일 성질, 승패·경기별 TACR 무관) → 완전 정합 원하면 `python -m app.calibration.recompute`. 두 경기는 이미 VM에 confirmed로 적재 완료.

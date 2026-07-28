@@ -10,7 +10,19 @@
 .riot-add-form { display:inline-flex; gap:3px; margin-top:2px; }
 </style>
 <div class="panel">
-    <h2>{% if is_admin %}유저 관리{% else %}내 정보{% endif %}</h2>
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+        <h2 style="margin:0;">{% if is_admin %}유저 관리{% else %}내 정보{% endif %}</h2>
+        {% if is_admin %}
+        <form method="post" action="/players/recompute" style="margin:0;"
+              onsubmit="return confirm('현재 등록된 수동 티어 기준으로 전 경기 점수(TACR·OpenSkill)를 재계산합니다. 진행할까요?');">
+            <button type="submit" title="티어 변경 사항을 과거 전 경기에 소급 반영">티어 반영 재계산</button>
+        </form>
+        {% endif %}
+    </div>
+    {% if is_admin and request.query_params.get('recomputed') %}
+    <p style="margin:8px 0 0; padding:6px 10px; border-left:3px solid #4caf50; background:#12240f;">
+        재계산 완료 — {{ request.query_params.get('recomputed') }}경기 반영됨.</p>
+    {% endif %}
     <p class="muted"><a href="/account/password">비밀번호 변경</a></p>
     {% if is_admin %}
     <p class="muted">발로 닉(OCR 매칭용)·디코 닉(표시용)·티어(source=manual)·별칭을 관리합니다.

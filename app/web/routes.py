@@ -928,6 +928,18 @@ def players_admin(
     )
 
 
+@router.post("/players/recompute")
+def recompute_players(_: AuthUser = Depends(require_admin)):
+    """현재 등록된 수동 티어 기준으로 전 경기 TACR/OpenSkill 재계산.
+
+    저장된 원시값(match_players)만 사용하며 Henrik 호출이 없어 가볍다(수십 경기 <1s).
+    sync 라우트라 FastAPI 가 스레드풀에서 실행 → 이벤트 루프를 막지 않는다.
+    """
+    from app.calibration.recompute import recompute_all
+    n = recompute_all()
+    return RedirectResponse(url=f"/players?recomputed={n}", status_code=303)
+
+
 @router.post("/players/{player_id}/edit")
 def edit_player(
     player_id: int, display_name: str = Form(...), discord_name: str = Form(""),
