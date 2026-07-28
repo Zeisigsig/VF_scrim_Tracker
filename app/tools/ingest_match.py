@@ -6,10 +6,14 @@ save_and_rate() 파이프라인을 재사용하므로 TACR/OpenSkill/헤드투�
 
 사용:
   uv run python -m app.tools.ingest_match <match_id> [<match_id> ...] \
-      [--link "Riot Name#Tag:player_id"] [--dry-run]
+      [--link "Riot Name#Tag:player_id"] [--review] [--dry-run]
 
-미등록 Riot 계정이 하나라도 있으면 저장하지 않고 목록만 출력한다.
+기본(디폴트)은 바로 확정 저장. --review 를 주면 검토 대기(pending)로 넣어
+웹 /review 에서 사람이 확인 후 확정하게 한다(일반 업로드와 동일한 검토 흐름).
+
+확정 모드에서 미등록 Riot 계정이 하나라도 있으면 저장하지 않고 목록만 출력한다.
 --link 로 기존 player 에 계정(puuid 포함)을 연결한 뒤 다시 실행하면 된다.
+(--review 모드는 미등록도 검토창에서 직접 매칭하므로 중단하지 않는다.)
 external_match_id 로 중복을 막으므로 재실행해도 안전(멱등).
 """
 from __future__ import annotations
@@ -20,11 +24,12 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 
 from app import config
-from app.db.models import Match, PlayerRiotAccount
+from app.db.models import Match, Player, PlayerRiotAccount
 from app.db.session import SessionLocal
 from app.henrik.client import HenrikClient
 from app.henrik.enrich import _parse_roster, _team_rounds
 from app.henrik.head_to_head import populate_match
+from app.ingest.schemas import ExtractedRow, ExtractionResult
 from app.services import ConfirmedRow, save_and_rate
 
 _KST = timezone(timedelta(hours=9))
@@ -93,7 +98,115 @@ def _resolve(session, roster: list[dict]) -> tuple[dict[int, int], list[dict]]:
     return mapping, unresolved
 
 
-def _ingest_one(session, client, hid: str, links, dry_run: bool) -> None:
+def _agent_kr(agent_en: str | None) -> str:
+    return config.agent_kr_from_en(agent_en) or (agent_en or "?")
+
+
+def _acs(score, rounds_total: int) -> int:
+    return round(score / rounds_total) if (score and rounds_total) else 0
+
+
+def _ingest_confirmed(session, client, hid, roster, tr, tid_a, tid_b, md, label,
+                      links, dry_run) -> None:
+    """검토 없이 바로 확정 저장 (Henrik 승패=절대정답). 미등록 있으면 중단."""
+    _apply_links(session, roster, links)
+    mapping, unresolved = _resolve(session, roster)
+    if unresolved:
+        print(f"[중단] {label} ({hid}) — 미등록 Riot 계정 {len(unresolved)}명:")
+        for r in unresolved:
+            print(f"    {r['name']}#{r['tag']}  (puuid={r['puuid']}, agent={r['agent_en']})")
+        print('    → --link "Name#Tag:player_id" 로 기존 player 에 연결, '
+              '또는 --review 로 검토창에서 처리')
+        raise SystemExit(2)
+
+    rounds_total = tr[tid_a] + tr[tid_b]
+    rows = [
+        ConfirmedRow(
+            player_id=mapping[i],
+            team="A" if r["team_id"] == tid_a else "B",
+            agent=_agent_kr(r["agent_en"]),
+            role=config.AGENT_ROLE.get(_agent_kr(r["agent_en"]), "initiator"),
+            acs=_acs(r["score"], rounds_total),
+            kills=r["k"] or 0, deaths=r["d"] or 0, assists=r["a"] or 0,
+        )
+        for i, r in enumerate(roster)
+    ]
+    match = Match(
+        external_match_id=hid, played_at=_kst_played_at(md.get("started_at")),
+        map_name=_map_kr({"metadata": md}), team_a_rounds=tr[tid_a],
+        team_b_rounds=tr[tid_b], extraction_raw={"henrik_match_id": hid},
+        status="pending",
+    )
+    session.add(match)
+    session.flush()
+    _print_roster(label, hid, tr, tid_a, tid_b, roster,
+                  [(rw.team, rw.agent, rw.player_id) for rw in rows])
+    if dry_run:
+        session.rollback()
+        print("    (dry-run: 저장 안 함)")
+        return
+    save_and_rate(session, match, rows)
+    session.commit()
+    try:
+        populate_match(session, match, client)
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        print(f"    (h2h 갱신 실패, 무해: {type(e).__name__})")
+    print("    확정 저장 완료.")
+
+
+def _ingest_review(session, client, hid, roster, tr, tid_a, tid_b, md, label,
+                   links, dry_run) -> None:
+    """검토 대기(pending)로 저장 → 웹 /review 에서 사람이 확인 후 확정. 미등록은 검토창에서 처리."""
+    _apply_links(session, roster, links)
+    mapping, _ = _resolve(session, roster)
+    names = {pid: (session.get(Player, pid).display_name) for pid in set(mapping.values())}
+    rounds_total = tr[tid_a] + tr[tid_b]
+    ex_rows = []
+    for i, r in enumerate(roster):
+        team = "A" if r["team_id"] == tid_a else "B"
+        # 등록 유저는 display_name 으로 넣어 검토창이 자동 매칭, 미등록은 Riot 닉.
+        nick = names.get(mapping.get(i, -1)) or (r["name"] or "?")
+        ex_rows.append(ExtractedRow(
+            nickname=nick, agent_kr=_agent_kr(r["agent_en"]),
+            team_color="초록" if team == "A" else "빨강", team=team,
+            acs=_acs(r["score"], rounds_total),
+            kills=r["k"] or 0, deaths=r["d"] or 0, assists=r["a"] or 0,
+        ))
+    result = ExtractionResult(
+        rows=ex_rows, map_name=_map_kr({"metadata": md}),
+        team_a_rounds=tr[tid_a], team_b_rounds=tr[tid_b], henrik_match_id=hid,
+    )
+    match = Match(
+        external_match_id=hid, played_at=_kst_played_at(md.get("started_at")),
+        map_name=_map_kr({"metadata": md}), team_a_rounds=tr[tid_a],
+        team_b_rounds=tr[tid_b], extraction_raw=result.model_dump(),
+        status="pending",
+    )
+    session.add(match)
+    session.flush()
+    _print_roster(label, hid, tr, tid_a, tid_b, roster,
+                  [(rw.team, rw.agent_kr, mapping.get(i)) for i, rw in enumerate(ex_rows)])
+    if dry_run:
+        session.rollback()
+        print("    (dry-run: 저장 안 함)")
+        return
+    session.commit()
+    print(f"    검토 대기 저장 완료 → 웹 /review/{match.id} 에서 확인 후 확정하세요.")
+
+
+def _print_roster(label, hid, tr, tid_a, tid_b, roster, rendered) -> None:
+    winner = "A" if tr[tid_a] > tr[tid_b] else ("B" if tr[tid_b] > tr[tid_a] else "무")
+    print(f"[적재] {label} ({hid})")
+    print(f"    라운드 A({tid_a}):{tr[tid_a]}  B({tid_b}):{tr[tid_b]}  → 승팀 {winner}")
+    for r, (team, agent, pid) in zip(roster, rendered):
+        pid_s = f"pid={pid}" if pid is not None else "pid=미등록"
+        print(f"    {team}  {str(r['name'])+'#'+str(r['tag']):<20} {agent:<8} "
+              f"{r['k']}/{r['d']}/{r['a']}  {pid_s}")
+
+
+def _ingest_one(session, client, hid: str, links, dry_run: bool, review: bool) -> None:
     if session.scalars(
         select(Match).where(Match.external_match_id == hid)
     ).first() is not None:
@@ -106,67 +219,12 @@ def _ingest_one(session, client, hid: str, links, dry_run: bool) -> None:
     if len(tr) != 2:
         print(f"[fail] 팀 라운드 파싱 실패({hid}): teams={tr}")
         return
-
-    _apply_links(session, roster, links)
-    mapping, unresolved = _resolve(session, roster)
+    tid_a, tid_b = sorted(tr.keys())
     md = match_raw.get("metadata") or {}
     label = f"{_map_kr(match_raw)} {_kst_played_at(md.get('started_at'))}"
-    if unresolved:
-        print(f"[중단] {label} ({hid}) — 미등록 Riot 계정 {len(unresolved)}명:")
-        for r in unresolved:
-            print(f"    {r['name']}#{r['tag']}  (puuid={r['puuid']}, agent={r['agent_en']})")
-        print('    → --link "Name#Tag:player_id" 로 기존 player 에 연결 후 재실행')
-        raise SystemExit(2)
 
-    team_ids = sorted(tr.keys())
-    tid_a, tid_b = team_ids[0], team_ids[1]
-    rounds_total = tr[tid_a] + tr[tid_b]
-
-    rows: list[ConfirmedRow] = []
-    for i, r in enumerate(roster):
-        agent_kr = config.agent_kr_from_en(r["agent_en"]) or (r["agent_en"] or "?")
-        acs = round(r["score"] / rounds_total) if (r["score"] and rounds_total) else 0
-        rows.append(ConfirmedRow(
-            player_id=mapping[i],
-            team="A" if r["team_id"] == tid_a else "B",
-            agent=agent_kr,
-            role=config.AGENT_ROLE.get(agent_kr, "initiator"),
-            acs=acs, kills=r["k"] or 0, deaths=r["d"] or 0, assists=r["a"] or 0,
-        ))
-
-    match = Match(
-        external_match_id=hid,
-        played_at=_kst_played_at(md.get("started_at")),
-        map_name=_map_kr(match_raw),
-        team_a_rounds=tr[tid_a], team_b_rounds=tr[tid_b],
-        extraction_raw={"henrik_match_id": hid},
-        status="pending",
-    )
-    session.add(match)
-    session.flush()
-
-    winner = "A" if tr[tid_a] > tr[tid_b] else ("B" if tr[tid_b] > tr[tid_a] else "무")
-    print(f"[적재] {label} ({hid})")
-    print(f"    라운드 A({tid_a}):{tr[tid_a]}  B({tid_b}):{tr[tid_b]}  → 승팀 {winner}")
-    for i, r in enumerate(roster):
-        row = rows[i]
-        print(f"    {row.team}  {r['name']}#{r['tag']:<14} {row.agent:<8} "
-              f"{row.kills}/{row.deaths}/{row.assists}  acs={row.acs}  pid={row.player_id}")
-
-    if dry_run:
-        session.rollback()
-        print("    (dry-run: 저장 안 함)")
-        return
-
-    save_and_rate(session, match, rows)
-    session.commit()
-    try:
-        populate_match(session, match, client)
-        session.commit()
-    except Exception as e:
-        session.rollback()
-        print(f"    (h2h 갱신 실패, 무해: {type(e).__name__})")
-    print("    저장 완료.")
+    fn = _ingest_review if review else _ingest_confirmed
+    fn(session, client, hid, roster, tr, tid_a, tid_b, md, label, links, dry_run)
 
 
 def _parse_links(args: list[str]) -> dict[tuple[str, str], int]:
@@ -184,7 +242,8 @@ def main() -> None:
         print(__doc__)
         raise SystemExit(1)
     dry_run = "--dry-run" in argv
-    argv = [a for a in argv if a != "--dry-run"]
+    review = "--review" in argv
+    argv = [a for a in argv if a not in ("--dry-run", "--review")]
     link_specs: list[str] = []
     match_ids: list[str] = []
     it = iter(argv)
@@ -199,7 +258,7 @@ def main() -> None:
     client = HenrikClient()
     try:
         for hid in match_ids:
-            _ingest_one(session, client, hid, links, dry_run)
+            _ingest_one(session, client, hid, links, dry_run, review)
     finally:
         client.close()
         session.close()
