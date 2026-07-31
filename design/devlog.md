@@ -508,3 +508,17 @@ Henrik 무료티어 `v4/matches`는 **최근 5~6판만** 줘서 07-24 경기가 
 
 ### VM 권한 구조 (배포 후 운영 삽질 정리)
 코드 배포(`git pull`+`systemctl restart`) 중 계정/sudo 혼선. 원인=**권한 분리(least privilege) 설계**: ① `vf`는 앱 전용 서비스 계정이라 **sudoers에 없고 비번도 잠김** → vf 상태에서 `sudo`는 무조건 실패("try again"). ② GCP 브라우저 SSH의 본인 계정은 **passwordless sudo**. 그래서 **파일/DB 작업(git pull·uv·CLI)은 `sudo su - vf`로 전환해 vf에서**, **시스템 작업(`systemctl restart vf`)은 `exit` 후 GCP 계정에서** 해야 함. 배포 순서: (vf에서)`cd ~/VF_scrim_Tracker && git pull` → `exit` → (GCP 계정)`sudo systemctl restart vf`. `restart vf`는 웹(`vf.service`)만 재시작(봇 `vf-bot.service`는 별개). restart 필요 이유=uvicorn이 시작 시 코드를 메모리로 import하고 운영은 `--reload` 없이 돌려 라우트 코드 변경이 재시작 없이는 반영 안 됨.
+
+## 2026-07-30 — 로컬 업로드 GUI 바탕화면 바로가기(.bat)
+
+### 발단
+`uv run python -m app.ingest.webui`(로컬 업로드 GUI, [webui.py])를 쓸 때마다 WSL에 명령을 치기 번거로움 → 바탕화면 더블클릭 실행으로.
+
+### 해결: `바탕화면/VF 업로드.bat`
+Windows 배치파일이 WSL을 호출해 GUI 서버를 띄우고 브라우저를 자동으로 연다.
+- 핵심 한 줄: `wsl.exe -d Ubuntu --cd <프로젝트경로> bash -lic "uv run python -m app.ingest.webui"`. **로그인+대화형 셸(`-lic`)** 이라야 `uv`(`~/.local/bin`)가 PATH에 잡힘 — `which uv`는 비대화형에선 빈값이었음.
+- **브라우저 자동 오픈은 .bat이 직접 처리.** webui.py의 `webbrowser.open`은 WSL 안에서 `sensible-browser`밖에 없어(=`wslview`/`xdg-open` 미설치) Windows 브라우저를 못 여는데, try/except라 조용히 실패. 그래서 .bat이 `start /min cmd /c "timeout /t 3 >/dev/null & explorer http://127.0.0.1:8765"`로 3초 뒤 기본 브라우저를 연다(서버 뜰 시간 확보). 메인 창은 서버가 점유(닫거나 Ctrl+C로 종료).
+- `chcp 65001`로 콘솔 한글 깨짐 방지.
+
+### 영향
+순수 로컬 편의 파일 1개(레포 밖 바탕화면). 코드/배포 무관, VM 영향 없음. GUI 흐름 자체는 [webui.py] 그대로.
