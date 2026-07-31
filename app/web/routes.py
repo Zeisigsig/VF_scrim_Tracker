@@ -38,7 +38,9 @@ from app.db.models import (
     SkillRating,
     User,
 )
-from app.db.session import get_session
+from app.db.session import get_session, get_setting, set_setting
+
+PUBLIC_SCORES_KEY = "public_adj_score"
 from app.ingest.matcher import match_nickname, register_alias
 from app.ingest.schemas import ExtractionResult
 from app.ingest.validator import validate
@@ -853,8 +855,11 @@ def leaderboard(
     q: str = "",
     session: Session = Depends(get_session), user: AuthUser = Depends(require_user),
 ):
-    # 나이순·판수순은 전원, 조정점수순은 어드민만(일반 유저는 점수가 가려져 무의미).
-    allowed = {"age", "games", "games_asc"} | ({"score"} if user.is_admin else set())
+    # 어드민이 전체공개 토글을 켜면 일반 유저도 조정점수를 볼 수 있다.
+    public_scores = get_setting(session, PUBLIC_SCORES_KEY, "0") == "1"
+    can_see_scores = user.is_admin or public_scores
+    # 나이순·판수순은 전원, 조정점수순은 점수를 볼 수 있는 경우만.
+    allowed = {"age", "games", "games_asc"} | ({"score"} if can_see_scores else set())
     if sort not in allowed:
         sort = "age"
     rows = _leaderboard_rows(session, min_games, sort=sort)
@@ -872,8 +877,20 @@ def leaderboard(
     return templates.TemplateResponse(
         request, "leaderboard.html",
         {"rows": rows, "min_games": min_games, "tier": tier, "q": q, "sort": sort,
-         "tier_names": list(config.TIER_TABLE.keys())},
+         "tier_names": list(config.TIER_TABLE.keys()),
+         "public_scores": public_scores},
     )
+
+
+@router.post("/leaderboard/toggle-public-scores")
+def toggle_public_scores(
+    session: Session = Depends(get_session), _: AuthUser = Depends(require_admin),
+):
+    """조정점수 전체공개 플래그를 뒤집는다(어드민 전용)."""
+    cur = get_setting(session, PUBLIC_SCORES_KEY, "0") == "1"
+    set_setting(session, PUBLIC_SCORES_KEY, "0" if cur else "1")
+    session.commit()
+    return RedirectResponse(url="/leaderboard", status_code=303)
 
 
 # --- 선수 관리 ----------------------------------------------------------

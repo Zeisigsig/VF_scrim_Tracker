@@ -7,12 +7,20 @@
         <div class="sort-toggle">
             <a class="btn-sort {% if sort == 'age' %}active{% endif %}" title="나이순"
                href="/leaderboard?min_games={{ min_games }}&tier={{ tier|urlencode }}&q={{ q|urlencode }}&sort=age">@</a>
-            {% if is_admin %}
+            {% if is_admin or public_scores %}
             <a class="btn-sort {% if sort == 'score' %}active{% endif %}" title="조정점수순"
                href="/leaderboard?min_games={{ min_games }}&tier={{ tier|urlencode }}&q={{ q|urlencode }}&sort=score">!</a>
             {% endif %}
         </div>
     </div>
+    {% if is_admin %}
+    <form class="inline mb-10" method="post" action="/leaderboard/toggle-public-scores">
+        <button type="submit" class="{% if not public_scores %}ghost{% endif %}">
+            조정점수 전체공개: {% if public_scores %}켜짐{% else %}꺼짐{% endif %}
+        </button>
+        <span class="muted hint-sub">{% if public_scores %}지금은 모든 유저가 남의 조정점수를 볼 수 있어요.{% else %}지금은 어드민만 남의 조정점수를 볼 수 있어요.{% endif %}</span>
+    </form>
+    {% endif %}
     <form class="inline lb-filter" method="get" action="/leaderboard">
         <input type="hidden" name="sort" value="{{ sort }}">
         <div class="lb-filter-left">
@@ -38,7 +46,7 @@
     <p class="muted">{% if sort == 'score' %}수축 조정 평균 표시점수순 (empirical Bayes, m=3){% elif sort == 'games' %}판수순 (많은 순){% else %}나이순 (출생연도 빠른 순, 9X→0X){% endif %}.
     {% if tier %}티어 필터: <b>{{ tier }}</b> (수동 티어 미설정 유저는 제외){% endif %}
     {% if q %}검색: <b>{{ q }}</b>{% endif %}</p>
-    {% if not is_admin %}<p class="muted">남의 조정 점수는 가려집니다(•••). 본인 점수만 확인할 수 있어요.</p>{% endif %}
+    {% if not is_admin and not public_scores %}<p class="muted">남의 조정 점수는 가려집니다(•••). 본인 점수만 확인할 수 있어요.</p>{% endif %}
     {% if rows %}
     <table>
         <thead>
@@ -56,7 +64,7 @@
             <td><a href="/player/{{ r.player_id }}">{{ r.label }}</a></td>
             <td class="muted">{{ r.tier_name or "-" }}</td>
             <td class="num">{{ r.games }}</td>
-            {% if is_admin or (user and r.player_id == user.player_id) %}
+            {% if is_admin or public_scores or (user and r.player_id == user.player_id) %}
             <td class="num score">{{ "%.0f"|format(r.adj_score) }}</td>
             {% else %}
             <td class="num muted" title="조정 점수는 본인 것만 보여요">•••</td>

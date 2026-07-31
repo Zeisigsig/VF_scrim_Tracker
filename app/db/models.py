@@ -208,3 +208,12 @@ class SkillRating(Base):
     sigma: Mapped[float] = mapped_column(nullable=False)
     games_counted: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     updated_at: Mapped[str] = mapped_column(Text, nullable=False, default=_now)
+
+
+class AppSetting(Base):
+    """전역 설정 KV 저장소. 요청/유저에 무관한 사이트 전역 토글용."""
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[str] = mapped_column(Text, nullable=False, default=_now)
