@@ -45,7 +45,7 @@
 
 <div class="grid2">
     <div class="panel">
-        <h3>라이벌 <span class="muted" style="font-size:.8em">동티어~상위 상대와 킬 팽팽</span></h3>
+        <h3>라이벌 <span class="muted hint-sub">동티어~상위 상대와 킬 팽팽</span></h3>
         {% if rivals %}
         <table>
             <thead><tr><th>상대</th><th class="num">킬 : 데스</th><th class="num">교전</th></tr></thead>
@@ -62,7 +62,7 @@
         {% endif %}
     </div>
     <div class="panel">
-        <h3>천적 <span class="muted" style="font-size:.8em">동티어~하위인데 날 더 잡음</span></h3>
+        <h3>천적 <span class="muted hint-sub">동티어~하위인데 날 더 잡음</span></h3>
         {% if nemeses %}
         <table>
             <thead><tr><th>상대</th><th class="num">데스 : 킬</th><th class="num">교전</th></tr></thead>
@@ -83,7 +83,7 @@
 {% if challengers or prey %}
 <div class="grid2">
     <div class="panel">
-        <h3>도전자 <span class="muted" style="font-size:.8em">하위 티어인데 나와 킬 팽팽</span></h3>
+        <h3>도전자 <span class="muted hint-sub">하위 티어인데 나와 킬 팽팽</span></h3>
         {% if challengers %}
         <table>
             <thead><tr><th>상대</th><th class="num">킬 : 데스</th><th class="num">교전</th></tr></thead>
@@ -100,7 +100,7 @@
         {% endif %}
     </div>
     <div class="panel">
-        <h3>사냥감 <span class="muted" style="font-size:.8em">상위 티어인데 내가 더 잡음</span></h3>
+        <h3>사냥감 <span class="muted hint-sub">상위 티어인데 내가 더 잡음</span></h3>
         {% if prey %}
         <table>
             <thead><tr><th>상대</th><th class="num">킬 : 데스</th><th class="num">교전</th></tr></thead>
@@ -152,66 +152,16 @@
 {% endif %}
 
 {% if trend and can_see_scores %}
-<script>
-const labels = {{ trend | map(attribute='played_at') | list | tojson }};
-const scores = {{ trend | map(attribute='display_score') | list | tojson }};
-new Chart(document.getElementById('trendChart'), {
-    type: 'line',
-    data: {
-        labels: labels.map(s => s.slice(0, 10)),
-        datasets: [{
-            label: '표시 점수', data: scores,
-            borderColor: '#ff4655', backgroundColor: 'rgba(255,70,85,0.15)',
-            tension: 0.25, fill: true, pointRadius: 3,
-        }]
-    },
-    options: {
-        scales: { y: { suggestedMin: 0, suggestedMax: 1000, grid: { color: '#2c3038' } },
-                  x: { grid: { color: '#2c3038' } } },
-        plugins: { legend: { labels: { color: '#e6e6e6' } } }
-    }
-});
-</script>
+<script id="trend-data" type="application/json">{{ {'labels': trend|map(attribute='played_at')|list, 'scores': trend|map(attribute='display_score')|list}|tojson }}</script>
 {% endif %}
 
 {% if can_see_scores %}
-<script>
-function radar(id, labels, data, color) {
-    const el = document.getElementById(id);
-    if (!el) return;
-    new Chart(el, {
-        type: 'radar',
-        data: {
-            labels: labels,
-            datasets: [{
-                label: '평균 표시 점수', data: data,
-                borderColor: color, backgroundColor: color + '33',
-                pointBackgroundColor: color, borderWidth: 2,
-            }]
-        },
-        options: {
-            scales: { r: {
-                suggestedMin: 0, suggestedMax: 1000,
-                angleLines: { color: '#2c3038' }, grid: { color: '#2c3038' },
-                pointLabels: { color: '#e6e6e6' },
-                ticks: { color: '#8a8f99', backdropColor: 'transparent', showLabelBackdrop: false },
-            } },
-            plugins: { legend: { labels: { color: '#e6e6e6' } } }
-        }
-    });
-}
 {% if map_stats|length >= 3 %}
-radar('mapChart',
-    {{ map_stats | map(attribute='map') | list | tojson }},
-    {{ map_stats | map(attribute='avg_score') | list | tojson }},
-    '#38bdf8');
+<script id="map-data" type="application/json">{{ {'labels': map_stats|map(attribute='map')|list, 'data': map_stats|map(attribute='avg_score')|list}|tojson }}</script>
 {% endif %}
 {% if agent_stats|length >= 3 %}
-radar('agentChart',
-    {{ agent_stats | map(attribute='agent') | list | tojson }},
-    {{ agent_stats | map(attribute='avg_score') | list | tojson }},
-    '#a78bfa');
+<script id="agent-data" type="application/json">{{ {'labels': agent_stats|map(attribute='agent')|list, 'data': agent_stats|map(attribute='avg_score')|list}|tojson }}</script>
 {% endif %}
-</script>
+<script src="/static/js/player-charts.js?v=1"></script>
 {% endif %}
 {% endblock %}

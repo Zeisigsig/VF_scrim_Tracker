@@ -13,13 +13,13 @@
               onsubmit="return confirm('원시값을 바꾸면 전 경기 레이팅이 재계산됩니다. 진행할까요?');">
             <div class="inline">
                 <label>맵 <input type="text" name="map_name" value="{{ match.map_name or '' }}"
-                       placeholder="맵 이름" style="width:110px"></label>
+                       placeholder="맵 이름" class="w-110"></label>
                 <label>스코어 A <input class="narrow" type="number" name="team_a_rounds"
                        value="{{ match.team_a_rounds if match.team_a_rounds is not none else '' }}"></label>
                 <label>: B <input class="narrow" type="number" name="team_b_rounds"
                        value="{{ match.team_b_rounds if match.team_b_rounds is not none else '' }}"></label>
             </div>
-            <div class="table-scroll" style="margin-top:12px;">
+            <div class="table-scroll mt-12">
             <table>
                 <thead>
                     <tr><th>유저</th><th>팀</th><th>요원</th>
@@ -52,9 +52,9 @@
                 </tbody>
             </table>
             </div>
-            <button type="submit" style="margin-top:12px;">저장 후 재계산</button>
+            <button type="submit" class="mt-12">저장 후 재계산</button>
         </form>
-        <p class="muted" style="margin-top:6px;">맵·스코어·요원·ACS·K/D/A 저장 시 표시점수·OpenSkill 이 전체 재계산됩니다(스코어 무입력 시 승패 미반영).</p>
+        <p class="muted mt-6">맵·스코어·요원·ACS·K/D/A 저장 시 표시점수·OpenSkill 이 전체 재계산됩니다(스코어 무입력 시 승패 미반영).</p>
     </details>
     {% endif %}
 
@@ -97,9 +97,9 @@
         </tbody>
     </table>
     {% if is_admin %}
-    <p class="muted" style="margin-top:10px;">막대는 기대 ACS 대비 실제 ACS 비율 (초록=초과 달성). 정렬 기준: 표시점수.</p>
+    <p class="muted mt-10">막대는 기대 ACS 대비 실제 ACS 비율 (초록=초과 달성). 정렬 기준: 표시점수.</p>
 
-    <form method="post" action="/match/{{ match.id }}/delete" style="margin-top:16px;"
+    <form method="post" action="/match/{{ match.id }}/delete" class="mt-16"
           onsubmit="return confirm('이 경기를 삭제합니다. 경기 기록이 사라지고 전 경기 레이팅이 재계산됩니다. 되돌릴 수 없습니다. 진행할까요?');">
         <button class="danger" type="submit">이 경기 삭제</button>
     </form>

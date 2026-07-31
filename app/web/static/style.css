@@ -106,3 +106,68 @@ th.sortable a:hover { text-decoration: underline; }
 .pos { color: var(--green); }
 .neg { color: var(--red); }
 canvas { max-width: 100%; }
+
+/* ===== 인라인 style 대체용 공통 클래스 ===== */
+.panel.narrow { max-width: 560px; }
+.panel.narrow-sm { max-width: 460px; }
+.panel.accent-border { border-color: var(--accent); }
+.panel.danger-border { border-color: var(--red); }
+.panel.ok-border { border-color: var(--green); }
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.panel-head > h2 { margin: 0; }
+.notice-ok { margin: 8px 0 0; padding: 6px 10px; border-left: 3px solid var(--green); background: #12240f; }
+.notice-inline { padding: 8px 10px; border-radius: 6px; }
+.hint-sub { font-size: 0.8em; }
+.center { text-align: center; }
+.m-0 { margin: 0; }
+.my-10 { margin: 10px 0; }
+.mt-6 { margin-top: 6px; }
+.mt-10 { margin-top: 10px; }
+.mt-12 { margin-top: 12px; }
+.mt-14 { margin-top: 14px; }
+.mt-16 { margin-top: 16px; }
+.mb-10 { margin-bottom: 10px; }
+.cap { text-align: center; margin: 4px 0 0; }
+.mb-6 { margin: 0 0 6px; }
+.pl-18 { padding-left: 18px; }
+.w-56 { width: 56px; }
+.w-90 { width: 90px; }
+.w-110 { width: 110px; }
+.w-130 { width: 130px; }
+.w-160 { width: 160px; }
+.w-180 { width: 180px; }
+
+/* players: Riot ID 칩 (구 인라인 <style> 이전) */
+.riot-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px;
+    margin: 1px 3px 1px 0; border: 1px solid var(--border); border-radius: 10px;
+    font-size: 0.85em; white-space: nowrap; }
+.riot-chip .chip-x { background: none; border: none; color: var(--red); cursor: pointer;
+    padding: 0 2px; font-size: 1.1em; line-height: 1; }
+.riot-cell { min-width: 210px; }
+.riot-add-form { display: inline-flex; gap: 3px; margin-top: 2px; }
+.nick-preview { font-size: 12px; margin-top: 2px; }
+
+/* ===== 모바일(좁은 화면) 반응형 ===== */
+@media (max-width: 640px) {
+    body { font-size: 13px; }
+    /* 상단 내비: 브랜드는 한 줄 차지하고 링크는 아래로 줄바꿈 */
+    nav { flex-wrap: wrap; gap: 8px 14px; padding: 10px 14px; }
+    nav .brand { margin-right: 0; flex-basis: 100%; }
+    main { padding: 14px 12px; }
+    /* 2단 그리드는 세로 1단으로 */
+    .grid2 { grid-template-columns: 1fr; gap: 14px; }
+    .panel { padding: 12px; }
+    /* 표가 좁은 화면에서 셀 글자가 세로로 접히는 문제 방지:
+       셀은 한 줄로 유지하고, 넘치면 패널 안에서 가로 스크롤. */
+    .panel { overflow-x: auto; }
+    .panel table { min-width: max-content; }
+    .panel th, .panel td { white-space: nowrap; padding: 6px 8px; }
+    /* 필터/툴바는 세로로 쌓아 넘침 방지 */
+    .toolbar { gap: 8px; }
+    .lb-head { flex-wrap: wrap; gap: 8px; }
+    .lb-filter { flex-direction: column; align-items: stretch; }
+    .lb-filter-left, .lb-filter-right { flex-wrap: wrap; }
+    /* '내 정보' 정의목록은 라벨/값 1열로 */
+    .info { grid-template-columns: 1fr; gap: 2px 0; }
+    .info dt { margin-top: 8px; }
+}

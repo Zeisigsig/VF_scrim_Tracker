@@ -28,7 +28,8 @@
         {% if dist and dist.my_frac is not none %}<b>▲ 화살표가 내 위치</b>예요.{% else %}본인 위치는 경기 기록이 있어야 표시돼요.{% endif %}</p>
         {% if dist %}
         <canvas id="distChart" height="200"></canvas>
-        <p class="muted" style="text-align:center; margin:4px 0 0;">낮음 &rarr; 높음</p>
+        <script id="dist-data" type="application/json">{{ {'counts': dist.counts, 'my_frac': dist.my_frac}|tojson }}</script>
+        <p class="muted cap">낮음 &rarr; 높음</p>
         {% else %}
         <p class="muted">분포를 그릴 만큼 경기 데이터가 충분하지 않아요.</p>
         {% endif %}
@@ -37,53 +38,7 @@
 </div>
 
 {% if dist %}
-<script>
-(function () {
-    const counts = {{ dist.counts | tojson }};
-    const myFrac = {{ dist.my_frac | tojson }};
-    // 곡선(tension) 스플라인이 데이터 최댓값 위로 넘칠 수 있어 y 상한에 여유를 준다.
-    const yMax = Math.max(...counts) * 1.35 || 1;
-    const arrowPlugin = {
-        id: 'myArrow',
-        afterDraw(chart) {
-            if (myFrac === null) return;
-            const ctx = chart.ctx, a = chart.chartArea;
-            const x = a.left + myFrac * (a.right - a.left);
-            ctx.save();
-            ctx.strokeStyle = 'rgba(255,70,85,0.6)';
-            ctx.lineWidth = 2; ctx.setLineDash([4, 4]);
-            ctx.beginPath(); ctx.moveTo(x, a.top); ctx.lineTo(x, a.bottom); ctx.stroke();
-            ctx.setLineDash([]);
-            ctx.fillStyle = '#ff4655';
-            ctx.beginPath();
-            ctx.moveTo(x, a.bottom + 3);
-            ctx.lineTo(x - 6, a.bottom + 13);
-            ctx.lineTo(x + 6, a.bottom + 13);
-            ctx.closePath(); ctx.fill();
-            ctx.fillStyle = '#e6e6e6'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
-            ctx.fillText('나', x, a.bottom + 27);
-            ctx.restore();
-        }
-    };
-    new Chart(document.getElementById('distChart'), {
-        type: 'line',
-        data: {
-            labels: counts.map(() => ''),
-            datasets: [{
-                data: counts, borderColor: '#7db3ff',
-                backgroundColor: 'rgba(125,179,255,0.15)',
-                fill: true, tension: 0.45, pointRadius: 0, borderWidth: 2,
-            }]
-        },
-        options: {
-            layout: { padding: { bottom: 30 } },
-            plugins: { legend: { display: false }, tooltip: { enabled: false } },
-            scales: { x: { display: false }, y: { display: false, beginAtZero: true, max: yMax } }
-        },
-        plugins: [arrowPlugin]
-    });
-})();
-</script>
+<script src="/static/js/dist-chart.js?v=1"></script>
 {% endif %}
 
 <div class="panel">
@@ -99,7 +54,7 @@
                 {% if is_admin %}
                 <form class="inline" method="post" action="/match/{{ m.id }}/map">
                     <input type="text" name="map_name" value="{{ m.map_name or '' }}"
-                           placeholder="None" style="width:90px">
+                           placeholder="None" class="w-90">
                     <input type="hidden" name="next" value="/">
                     <button class="ghost" type="submit">저장</button>
                 </form>
@@ -117,7 +72,7 @@
 </div>
 
 {% if is_admin and inbox_count > 0 %}
-<div class="panel" style="border-color: var(--accent);">
+<div class="panel accent-border">
     <form class="inline" method="post" action="/inbox/process">
         <span class="badge warn">처리 대기 {{ inbox_count }}건</span>
         인박스 폴더(data/inbox/)에 이미지가 있습니다.
@@ -137,7 +92,7 @@
             <td>#{{ m.id }}
                 <form class="inline" method="post" action="/match/{{ m.id }}/map">
                     <input type="text" name="map_name" value="{{ m.map_name or '' }}"
-                           placeholder="None" style="width:90px">
+                           placeholder="None" class="w-90">
                     <input type="hidden" name="next" value="/">
                     <button class="ghost" type="submit">저장</button>
                 </form>

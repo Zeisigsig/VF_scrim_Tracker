@@ -522,3 +522,22 @@ Windows 배치파일이 WSL을 호출해 GUI 서버를 띄우고 브라우저를
 
 ### 영향
 순수 로컬 편의 파일 1개(레포 밖 바탕화면). 코드/배포 무관, VM 영향 없음. GUI 흐름 자체는 [webui.py] 그대로.
+
+## 2026-07-31 — 프런트엔드 정리: 인라인 CSS/JS 분리 + 모바일 반응형
+
+### 1) 인라인 CSS/JS를 외부 파일로 분리
+템플릿마다 흩어져 있던 스타일/스크립트를 걷어내 `style.css`와 `static/js/`로 모음.
+- **CSS:** `players.html`의 `<style>` 블록을 `style.css`로 이관하고, 반복되던 인라인 `style=`를 공통 클래스로 교체 — `.panel-head`, `.notice-ok`, `.notice-inline`, `.hint-sub`, `.panel.narrow`/`.narrow-sm`/`.accent-border`/`.danger-border`/`.ok-border`, 폭·여백 유틸(`.w-56~180`, `.mt-*`, `.mb-10`, `.m-0`, `.cap` 등).
+- **JS:** 페이지 인라인 `<script>`를 6개 파일로 분리 — `players.js`(유저관리 검색·필터·AJAX), `numonly.js`(숫자 전용 입력 필터, upload·review 공용), `review.js`, `dist-chart.js`(홈 분포), `tier-chart.js`(로그인 티어 도넛), `player-charts.js`(추이 라인+맵/요원 레이더).
+- **데이터-로직 분리 방식:** 차트값·요원역할표처럼 Jinja 값이 필요한 건 `<script type="application/json" id="...">{{ ...|tojson }}</script>` 태그로 주입하고, 외부 JS가 그 태그를 `JSON.parse`해 읽음. JS 파일엔 Jinja가 전혀 안 들어가 정적 캐싱·문법검사 용이.
+- **남긴 인라인:** `match.html`의 막대 `style="width:{{ratio}}%; background:..."` 는 행마다 값이 달라지는 진짜 동적 스타일이라 그대로 둠(CSS로 못 뺌).
+- `style.css?v=4`, 각 JS `?v=1`로 캐시 버스트. 검증: 전 템플릿 Jinja 컴파일 OK, 데이터 태그 JSON 유효성 확인, 정적 에셋 전부 200.
+
+### 2) 모바일(좁은 화면) 반응형
+증상: 폰에서 표 글자가 세로로 접히고 페이지가 꾸겨짐. 원인=넓은 표가 좁은 뷰포트에서 열이 짜부되며 셀 텍스트가 세로 wrap.
+- `@media (max-width: 640px)` 추가. **핵심:** `.panel`을 가로 스크롤 컨테이너(`overflow-x:auto`)로, 표는 `min-width:max-content` + 셀 `white-space:nowrap`으로 한 줄 유지 → 넘치면 패널 안에서만 가로 스크롤(뷰포트는 안 터짐).
+- 부수: nav 줄바꿈(브랜드 한 줄 차지), `.grid2` 1단, 리더보드 필터/툴바 세로 정렬, `내 정보` 정의목록 1열, 폰트·패딩 축소. `style.css?v=5`.
+- **한계:** 코드/서버·에셋·CSS 문법·미디어쿼리 반영까지만 확인. 실제 모바일 뷰포트 육안 확인은 못 함 → 배포 후 표 많은 페이지(리더보드·경기상세·유저관리) 폰 확인 필요.
+
+### 영향
+순수 프런트엔드(템플릿/CSS/JS). 라우트·DB·레이팅 로직 무수정, 서버 동작 동일. `app/web/static/js/` 디렉터리 신규.

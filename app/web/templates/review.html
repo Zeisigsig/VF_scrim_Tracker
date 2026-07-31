@@ -6,7 +6,7 @@
     <p class="muted">VLM 추출값을 확인·수정한 뒤 확정하세요. 확정 전까지 저장되지 않습니다.</p>
 
     {% if warnings %}
-    <div style="margin: 10px 0;">
+    <div class="my-10">
         {% for w in warnings %}
         <span class="badge warn" title="{{ w.code }}">⚠ {{ w.message }}</span>
         {% endfor %}
@@ -14,17 +14,17 @@
     {% endif %}
 
     {% if henrik_match_id %}
-    <div class="panel" style="margin:10px 0; border-color: var(--green, #3a7);">
+    <div class="panel my-10 ok-border">
         {% if corrections %}
-        <p style="margin:0 0 6px;"><b>Henrik로 {{ corrections|length }}개 항목 보정됨</b>
+        <p class="mb-6"><b>Henrik로 {{ corrections|length }}개 항목 보정됨</b>
             <span class="muted">— 아래 표는 이미 보정된 값입니다.</span></p>
-        <ul class="muted" style="margin:0; padding-left:18px;">
+        <ul class="muted m-0 pl-18">
             {% for c in corrections %}
             <li>{{ c.nickname }} {{ c.field }} {{ c.old }}→{{ c.new }}</li>
             {% endfor %}
         </ul>
         {% else %}
-        <p style="margin:0;" class="muted">Henrik에서 해당 경기를 찾았고 OCR 값과 모두 일치했습니다.</p>
+        <p class="muted m-0">Henrik에서 해당 경기를 찾았고 OCR 값과 모두 일치했습니다.</p>
         {% endif %}
     </div>
     {% endif %}
@@ -51,7 +51,7 @@
             <tr class="team-{{ r.team }}">
                 <td>
                     <input type="text" name="nickname_{{ i }}" value="{{ r.nickname }}"
-                           class="nick-input" data-row="{{ i }}" style="width:130px">
+                           class="nick-input w-130" data-row="{{ i }}">
                     <br>
                     <select name="player_res_{{ i }}" class="res-select" data-row="{{ i }}">
                         {% if item.exact_player_id %}
@@ -64,7 +64,7 @@
                         {% endfor %}
                         <option value="new" {% if not item.exact_player_id and not item.suggested_player_id %}selected{% endif %}>+ 신규 유저 생성</option>
                     </select>
-                    <div class="nick-preview muted" data-row="{{ i }}" style="font-size:12px;margin-top:2px;">
+                    <div class="nick-preview muted" data-row="{{ i }}">
                         {%- if item.exact_label %}✓ {{ item.exact_label }}(으)로 자동 매칭{% endif -%}
                     </div>
                 </td>
@@ -101,65 +101,11 @@
             </tbody>
         </table>
         </div>
-        <p style="margin-top:14px;"><button type="submit">확정 및 저장</button></p>
+        <p class="mt-14"><button type="submit">확정 및 저장</button></p>
     </form>
 </div>
 
-<script>
-    // 숫자 전용 칸은 숫자만 입력되게 필터(스피너 버튼 없는 text 입력이라 오클릭 방지).
-    document.querySelectorAll('.numonly').forEach(function (inp) {
-        inp.addEventListener('input', function () {
-            const cleaned = inp.value.replace(/[^0-9]/g, '');
-            if (cleaned !== inp.value) inp.value = cleaned;
-        });
-    });
-
-    // 요원→역할은 고정 규칙이므로 요원을 고르면 역할이 자동으로 따라오게 한다.
-    const AGENT_ROLE = {{ agent_role | tojson }};
-    document.querySelectorAll('.agent-select').forEach(function (sel) {
-        sel.addEventListener('change', function () {
-            const role = AGENT_ROLE[sel.value];
-            if (!role) return;
-            const target = document.querySelector('.role-select[data-row="' + sel.dataset.row + '"]');
-            if (target) target.value = role;
-        });
-    });
-
-    // 엔터로 폼이 제출돼 실수로 확정되던 문제 방지: input 에서 Enter 는 제출 대신
-    // 닉네임이면 매칭 미리보기, 그 외 필드는 무시. '확정 및 저장'은 클릭만 허용.
-    const reviewForm = document.querySelector('form[action$="/confirm"]');
-    reviewForm.addEventListener('keydown', function (e) {
-        if (e.key !== 'Enter' || e.target.tagName !== 'INPUT') return;
-        e.preventDefault();
-        if (e.target.classList.contains('nick-input')) resolveNick(e.target);
-    });
-    // 닉을 고치고 포커스를 벗어나도(blur) 즉시 갱신되게.
-    document.querySelectorAll('.nick-input').forEach(function (inp) {
-        inp.addEventListener('blur', function () { resolveNick(inp); });
-    });
-
-    async function resolveNick(input) {
-        const row = input.dataset.row;
-        const name = input.value.trim();
-        const preview = document.querySelector('.nick-preview[data-row="' + row + '"]');
-        const sel = document.querySelector('.res-select[data-row="' + row + '"]');
-        if (!name) { if (preview) preview.textContent = ''; return; }
-        let data;
-        try {
-            const res = await fetch('/api/resolve-nick?name=' + encodeURIComponent(name));
-            data = await res.json();
-        } catch (err) { return; }
-        if (data.matched) {
-            const val = 'existing:' + data.player_id;
-            let opt = sel.querySelector('option[value="' + val + '"]');
-            if (!opt) { opt = document.createElement('option'); opt.value = val; sel.appendChild(opt); }
-            opt.textContent = '→ ' + data.label + ' (매칭)';
-            sel.value = val;
-            if (preview) { preview.textContent = '✓ ' + data.label + '(으)로 매칭됨'; preview.style.color = 'var(--green)'; }
-        } else {
-            sel.value = 'new';
-            if (preview) { preview.textContent = '+ 신규 유저로 생성됨'; preview.style.color = 'var(--muted)'; }
-        }
-    }
-</script>
+<script id="agent-role-data" type="application/json">{{ agent_role|tojson }}</script>
+<script src="/static/js/numonly.js?v=1"></script>
+<script src="/static/js/review.js?v=1"></script>
 {% endblock %}

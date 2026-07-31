@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}업로드 · 내전 트래커{% endblock %}
 {% block content %}
-<div class="panel" style="max-width: 560px;">
+<div class="panel narrow">
     <h2>스코어보드 업로드</h2>
     <p class="muted">내전 종료 직후 결과 스코어보드 스크린샷을 업로드하세요. 추출 후 검토 화면에서 확정합니다.
        여러 경기를 한꺼번에 올릴 수도 있습니다(파일 다중 선택).</p>
@@ -18,12 +18,5 @@
         <p><button type="submit">추출 시작</button></p>
     </form>
 </div>
-<script>
-    document.querySelectorAll('.numonly').forEach(function (inp) {
-        inp.addEventListener('input', function () {
-            const cleaned = inp.value.replace(/[^0-9]/g, '');
-            if (cleaned !== inp.value) inp.value = cleaned;
-        });
-    });
-</script>
+<script src="/static/js/numonly.js?v=1"></script>
 {% endblock %}
