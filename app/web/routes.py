@@ -760,9 +760,6 @@ def player_profile(
 
 # --- 리더보드 -----------------------------------------------------------
 
-SERVER_OWNER = "Vice"  # 서버장 디코닉 — 리더보드 최상단 고정.
-
-
 def _age_key(discord: str | None) -> int:
     """디코닉 앞의 두 자리(출생연도)로 나이 정렬 키를 만든다. 오래된 해가 먼저(작은 값).
     30 이상은 19XX, 미만은 20XX 로 해석(9X→1990년대, 0X→2000년대). 숫자 없으면 맨 뒤."""
@@ -824,8 +821,6 @@ def _leaderboard_rows(session: Session, min_games: int, sort: str = "age") -> li
         rows.sort(key=lambda r: (r["games"], -r["adj_score"], r["display_name"]))
     else:  # age (기본)
         rows.sort(key=lambda r: (_age_key(r["discord_name"]), r["display_name"]))
-        # 서버장(Vice)은 나이순일 때만 맨 위 고정. 다른 정렬에선 실제 순위대로.
-        rows.sort(key=lambda r: 0 if (r["discord_name"] or "").strip() == SERVER_OWNER else 1)
     return rows
 
 
