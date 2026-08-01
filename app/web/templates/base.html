@@ -10,7 +10,7 @@
 <body>
 <header>
     <nav>
-        <a class="brand" href="/">모여봐요 발로의 숲 내전 트래커</a>
+        <a class="brand" href="/">내전 트래커</a>
         {% if user %}
         <span class="nav-user">{{ user.username }}{% if is_admin %} <span class="badge">어드민</span>{% endif %}</span>
         <a href="/players">{% if is_admin %}유저 관리{% else %}내 정보{% endif %}</a>

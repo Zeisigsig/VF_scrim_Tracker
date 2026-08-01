@@ -17,7 +17,7 @@ from app.auth import (
 from app.db.session import SessionLocal, init_db
 from app.web.routes import router
 
-app = FastAPI(title="모여봐요 발로의 숲 내전 트래커")
+app = FastAPI(title="내전 트래커")
 
 
 @app.middleware("http")
