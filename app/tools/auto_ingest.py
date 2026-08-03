@@ -3,8 +3,9 @@
 내전이 끝난 직후, 참가자 디코 닉들을 주면:
   1) 각 디코 닉 → Player(discord_name) 해석 → 입력 그룹 구성.
   2) 시드 한 명의 Riot 계정으로 Henrik 최근 커스텀 매치를 조회, 그중
-     '표준 5v5 + 입력 그룹이 2명 이상 낀' 최근 매치 2개만 적재한다
-     (Skirmish/Drift/Deathmatch 등 비표준·시드 혼자 낀 무관 매치는 제외).
+     '표준 5v5 + 입력 안 된 사람이 2명 이하'인 최근 매치 2개만 적재한다
+     (Skirmish/Drift/Deathmatch 등 비표준·낯선 사람이 많은 무관 매치는 제외.
+      신규 sub 1~2명은 이 여유 안에서 auto_register 로 온보딩).
   3) 그 매치 로스터에 잡힌 참가자(최대 9명)는 이미 처리됐으니 목록에서 제외.
   4) 남은 사람으로 2~3을 반복 → 시드 몇 명이면 40명도 전부 커버(API 호출 최소화).
 
@@ -33,7 +34,7 @@ from app.services import _norm_nick
 from app.tools.ingest_match import _ingest_one, _kst_played_at, _map_kr, _resolve
 
 _MATCHES_PER_SEED = 2  # 시드당 적재할 최근 표준 내전 수 (내전 직후 실행 전제)
-_MIN_GROUP_OVERLAP = 2  # 매치 로스터에 입력 그룹이 이만큼 있어야 '그 내전'으로 인정
+_MAX_STRANGERS = 2  # 로스터 중 '입력 안 된 사람' 허용 상한 (초과하면 그 매치는 제외)
 _PREFIX = re.compile(r"^\d{2}\s+")  # 디코닉 앞 생년 2자리 접두 (예: "97 승진")
 
 
@@ -160,12 +161,14 @@ def execute(nicks: list[str], dry_run: bool = False) -> dict:
                 seen_mid.add(mid)
 
                 roster = _parse_roster(m)
-                overlap = sum(1 for pid in _resolve(session, roster)[0].values()
-                              if pid in group_ids)
-                # 표준 5v5 + 입력 그룹이 _MIN_GROUP_OVERLAP 명 이상 있어야 '그 내전'.
-                # (Skirmish/Drift 등 비표준·시드 혼자 낀 무관 매치를 배제)
-                if not _is_standard(m) or overlap < _MIN_GROUP_OVERLAP:
-                    reason = "비표준" if not _is_standard(m) else f"그룹 {overlap}명뿐"
+                in_group = sum(1 for pid in _resolve(session, roster)[0].values()
+                               if pid in group_ids)
+                strangers = len(roster) - in_group
+                # 표준 5v5 + 로스터의 '입력 안 된 사람'이 _MAX_STRANGERS 이하여야 '그 내전'.
+                # (Skirmish/Drift 등 비표준·입력자 몇 명만 낀 무관 매치를 배제. 신규
+                #  sub 1~2명은 이 여유 안에서 auto_register 로 온보딩됨.)
+                if not _is_standard(m) or strangers > _MAX_STRANGERS:
+                    reason = "비표준" if not _is_standard(m) else f"낯선 {strangers}명"
                     filtered.append(
                         f"{_map_kr(m)} {_kst_played_at(md.get('started_at'))} "
                         f"· {_mode_type(m)} · {reason}")

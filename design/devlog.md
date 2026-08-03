@@ -617,8 +617,8 @@ DB 스키마 1테이블 추가(자동 생성), 리더보드 라우트/템플릿 
 ### 버그 수정: 비표준·무관 매치까지 다 적재되던 문제 (2026-08-03)
 10명(세훈·그리드·예진…)을 넣었더니 **10개 매치를 다 적재** — Skirmish C·Drift(Team Deathmatch) 같은 **비표준** 모드와, **시드 혼자 낀 무관한 매치**까지 들어감. 원인: `_custom_matches`가 `mode='custom'` 결과를 필터 없이 `[:2]`로 적재. `mode='custom'`은 **표준 5v5뿐 아니라 커스텀 전 종류**(Deathmatch 등)를 다 돌려줌.
 - **표준 필터**: Henrik v4 `metadata.queue.mode_type == "Standard"` 인 것만 적재(`_is_standard`). 실측 확인 — 표준 커스텀은 `mode_type=="Standard"`·10인·Red/Blue 2팀, Deathmatch는 `mode_type=="Deathmatch"`·6인.
-- **그룹 오버랩 게이트**: 입력 디코닉 전체를 그룹으로 잡고(`group_ids`), 매치 로스터에 그룹이 **`_MIN_GROUP_OVERLAP`(=2)명 이상** 있어야 '그 내전'으로 인정. 시드 혼자(1명) 낀 매치는 배제.
-- `_MATCHES_PER_SEED`(=2) 캡은 이제 **표준+오버랩 통과 매치**에만 적용(중간의 Deathmatch 등을 건너뛰고 진짜 내전 2개를 찾음). dedup(remaining 제거)도 **확정 적재한 매치**에만.
-- 제외한 매치는 `filtered`로 사유(비표준/그룹 N명뿐)와 함께 리포트 — CLI·로컬 페이지에 표시.
-- 드라이런 검증: 같은 10명 입력 시 Skirmish/Drift·1명뿐 매치 7개가 `filtered`로 빠지고 표준+오버랩만 남음.
+- **낯선 사람 게이트(절충안 C)**: 입력 디코닉 전체를 그룹으로 잡고(`group_ids`), 매치 로스터 중 **입력 안 된 사람('낯선')이 `_MAX_STRANGERS`(=2)명 이하**여야 '그 내전'으로 인정. 전제=사용자가 그날 참가자 전원을 침. 전원 typed→낯선 0명 적재, 신규 sub 1~2명→여유 안에서 auto_register 온보딩, 낯선 8명짜리 랜덤 커스텀→거부. (초기엔 '입력자 2명 이상'이었으나, 입력자 몇 명만 낀 무관 매치·잡 유저 양산 우려로 사용자가 C안 선택 — `10 - in_group = strangers ≤ 2`.)
+- `_MATCHES_PER_SEED`(=2) 캡은 이제 **표준+게이트 통과 매치**에만 적용(중간의 Deathmatch 등을 건너뛰고 진짜 내전 2개를 찾음). dedup(remaining 제거)도 **확정 적재한 매치**에만.
+- 제외한 매치는 `filtered`로 사유(비표준/낯선 N명)와 함께 리포트 — CLI·로컬 페이지에 표시.
+- 드라이런 검증: 스테일 로컬데이터로 그 10명 입력 시 낯선 7~10명·Skirmish/Drift 매치가 전부 `filtered`로 빠짐(공유 내전이 데이터에 없어 0개 — 정상). 실사용은 내전 직후라 typed=실제 로스터 → 낯선 0명 적재.
 - **주의**: 사용자 최초 버그 실행분(10개 오적재)은 **VM 정본 DB**에 들어감(로컬 sqlite엔 없음 → .bat/VM경유 실행). 코드 재배포 후 VM에서 오적재분 삭제(`/match/{id}/delete` 어드민 또는 CLI) + `recompute_all()` 필요.
