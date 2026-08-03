@@ -72,6 +72,7 @@ function render(d){
   html+=card('신규 유저', d.new_players, 'ok');
   html+=card('Riot 계정 채움', d.new_accounts, 'ok');
   html+=card('⚠️ 디코닉 매칭 실패', d.unmatched, 'warn');
+  html+=card('⚠️ 여러 명 매칭(정확히 입력)', d.ambiguous, 'warn');
   html+=card('⚠️ Riot 계정 미연결(자동검색 불가)', d.no_account, 'warn');
   html+=card('최근 커스텀 없음', d.no_matches, 'skip');
   out.innerHTML=html || '<div class="card muted">처리 결과 없음</div>';

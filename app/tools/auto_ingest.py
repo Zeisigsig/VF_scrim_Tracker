@@ -17,6 +17,7 @@ CLI 사용:
 """
 from __future__ import annotations
 
+import re
 import sys
 
 from sqlalchemy import select
@@ -30,18 +31,35 @@ from app.services import _norm_nick
 from app.tools.ingest_match import _ingest_one, _kst_played_at, _map_kr, _resolve
 
 _MATCHES_PER_SEED = 2  # 시드당 조회할 최근 커스텀 매치 수 (내전 직후 실행 전제)
+_PREFIX = re.compile(r"^\d{2}\s+")  # 디코닉 앞 생년 2자리 접두 (예: "97 승진")
 
 
-def _resolve_nick(session, nick: str) -> Player | None:
-    """디코 닉 → Player. discord_name 완전 일치 → 정규화 일치 순."""
+def _strip_prefix(s: str) -> str:
+    return _PREFIX.sub("", s or "").strip()
+
+
+def _resolve_nick(session, nick: str) -> tuple[Player | None, list[Player]]:
+    """디코 닉 → (Player, 모호후보). 접두("97 ") 뗀 이름만 쳐도 매칭.
+
+    완전 일치 → 정규화 일치 → 접두 제거 이름 일치 순. 여러 명 걸리면
+    (None, 후보들) 로 돌려 호출측이 골라달라고 리포트한다.
+    """
     p = session.scalar(select(Player).where(Player.discord_name == nick))
     if p is not None:
-        return p
-    target = _norm_nick(nick)
-    for cand in session.scalars(select(Player).where(Player.discord_name.is_not(None))):
-        if _norm_nick(cand.discord_name) == target:
-            return cand
-    return None
+        return p, []
+    players = list(session.scalars(select(Player).where(Player.discord_name.is_not(None))))
+
+    exact = [c for c in players if _norm_nick(c.discord_name) == _norm_nick(nick)]
+    if len(exact) == 1:
+        return exact[0], []
+    if len(exact) > 1:
+        return None, exact
+
+    base = _norm_nick(_strip_prefix(nick))
+    hits = [c for c in players if _norm_nick(_strip_prefix(c.discord_name)) == base]
+    if len(hits) == 1:
+        return hits[0], []
+    return (None, hits) if len(hits) > 1 else (None, [])
 
 
 def _seed_accounts(session, player_id: int) -> list[tuple[str, str]]:
@@ -78,6 +96,7 @@ def execute(nicks: list[str], dry_run: bool = False) -> dict:
 
     remaining: dict[int, str] = {}   # player_id → 디코닉(표시용)
     unmatched: list[str] = []        # Player 로 해석 안 된 디코닉
+    ambiguous: list[str] = []        # 여러 명이 걸린 디코닉(골라야 함)
     no_account: list[str] = []       # Riot 계정 미연결이라 자동검색 불가
     no_matches: list[str] = []       # 최근 커스텀 매치가 없던 시드
     matches: list[dict] = []         # 적재/확인한 매치
@@ -85,11 +104,13 @@ def execute(nicks: list[str], dry_run: bool = False) -> dict:
 
     try:
         for nick in nicks:
-            p = _resolve_nick(session, nick)
-            if p is None:
-                unmatched.append(nick)
-            else:
+            p, cands = _resolve_nick(session, nick)
+            if p is not None:
                 remaining[p.id] = nick
+            elif cands:
+                ambiguous.append(f"{nick} → " + " / ".join(c.discord_name for c in cands))
+            else:
+                unmatched.append(nick)
 
         # 시드 확장 루프: 남은 사람 중 하나를 시드로 매치를 끌어와 로스터로 dedup.
         while remaining:
@@ -135,7 +156,8 @@ def execute(nicks: list[str], dry_run: bool = False) -> dict:
         return {
             "dry_run": dry_run, "matches": matches,
             "new_players": new_players, "new_accounts": new_accounts,
-            "unmatched": unmatched, "no_account": no_account, "no_matches": no_matches,
+            "unmatched": unmatched, "ambiguous": ambiguous,
+            "no_account": no_account, "no_matches": no_matches,
         }
     finally:
         client.close()
@@ -156,6 +178,10 @@ def _print_result(r: dict) -> None:
         print(f"Riot 계정 채움 {len(r['new_accounts'])}: " + ", ".join(r["new_accounts"]))
     if r["unmatched"]:
         print(f"[미해결] 디코닉 매칭 실패 {len(r['unmatched'])}: " + ", ".join(r["unmatched"]))
+    if r.get("ambiguous"):
+        print(f"[선택필요] 여러 명 매칭 {len(r['ambiguous'])}:")
+        for a in r["ambiguous"]:
+            print(f"  {a}")
     if r["no_account"]:
         print(f"[미해결] Riot 계정 미연결 {len(r['no_account'])}: " + ", ".join(r["no_account"]))
     if r["no_matches"]:
