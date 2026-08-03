@@ -30,7 +30,7 @@ from app.henrik.client import HenrikClient
 from app.henrik.enrich import _parse_roster, _team_rounds
 from app.henrik.head_to_head import populate_match
 from app.ingest.schemas import ExtractedRow, ExtractionResult
-from app.services import ConfirmedRow, save_and_rate
+from app.services import ConfirmedRow, get_or_create_player, save_and_rate
 
 _KST = timezone(timedelta(hours=9))
 
@@ -80,6 +80,33 @@ def _apply_links(session, roster: list[dict], links: dict[tuple[str, str], int])
     session.flush()
 
 
+def _auto_register(session, unresolved: list[dict]) -> None:
+    """미등록 로스터 항목을 자동 등록(auto_ingest 용).
+
+    riot_name(=발로닉)으로 기존 유저를 찾으면 재사용(발로닉만 있던 유저 보강),
+    없으면 신규 생성한 뒤 Riot 계정(name#tag/puuid)을 연결해 '태그를 채워넣는다'.
+    겹쳐서 중복 유저가 생기면 사람이 merge_players 로 정리한다.
+    """
+    for r in unresolved:
+        name = r["name"] or ""
+        if not name:
+            continue
+        player = get_or_create_player(session, name)
+        exists = session.scalars(
+            select(PlayerRiotAccount).where(
+                PlayerRiotAccount.player_id == player.id,
+                PlayerRiotAccount.riot_name == r["name"],
+                PlayerRiotAccount.riot_tag == r["tag"],
+            )
+        ).first()
+        if exists is None:
+            session.add(PlayerRiotAccount(
+                player_id=player.id, riot_name=r["name"], riot_tag=r["tag"],
+                puuid=r["puuid"],
+            ))
+    session.flush()
+
+
 def _resolve(session, roster: list[dict]) -> tuple[dict[int, int], list[dict]]:
     """로스터 인덱스 → player_id 매핑과 미해결 로스터 목록. puuid 우선, 없으면 name#tag."""
     accts = list(session.scalars(select(PlayerRiotAccount)))
@@ -107,17 +134,31 @@ def _acs(score, rounds_total: int) -> int:
 
 
 def _ingest_confirmed(session, client, hid, roster, tr, tid_a, tid_b, md, label,
-                      links, dry_run) -> None:
-    """검토 없이 바로 확정 저장 (Henrik 승패=절대정답). 미등록 있으면 중단."""
+                      links, dry_run, auto_register=False) -> list[dict] | None:
+    """검토 없이 바로 확정 저장 (Henrik 승패=절대정답).
+
+    미등록 Riot 계정 처리: 기본은 중단(사람이 --link/--review). auto_register 면
+    발로닉 매칭/신규 생성으로 자동 등록 후 진행(auto_ingest 용).
+    저장한 로스터를 반환(coverage 계산용), 건너뛰면 None.
+    """
     _apply_links(session, roster, links)
     mapping, unresolved = _resolve(session, roster)
     if unresolved:
-        print(f"[중단] {label} ({hid}) — 미등록 Riot 계정 {len(unresolved)}명:")
-        for r in unresolved:
-            print(f"    {r['name']}#{r['tag']}  (puuid={r['puuid']}, agent={r['agent_en']})")
-        print('    → --link "Name#Tag:player_id" 로 기존 player 에 연결, '
-              '또는 --review 로 검토창에서 처리')
-        raise SystemExit(2)
+        if auto_register:
+            _auto_register(session, unresolved)
+            mapping, unresolved = _resolve(session, roster)
+        if unresolved:
+            if not auto_register:
+                print(f"[중단] {label} ({hid}) — 미등록 Riot 계정 {len(unresolved)}명:")
+                for r in unresolved:
+                    print(f"    {r['name']}#{r['tag']}  (puuid={r['puuid']}, "
+                          f"agent={r['agent_en']})")
+                print('    → --link "Name#Tag:player_id" 로 기존 player 에 연결, '
+                      '또는 --review 로 검토창에서 처리')
+                raise SystemExit(2)
+            print(f"[건너뜀] {label} ({hid}) — 자동등록 실패 {len(unresolved)}명")
+            session.rollback()
+            return None
 
     rounds_total = tr[tid_a] + tr[tid_b]
     rows = [
@@ -144,7 +185,7 @@ def _ingest_confirmed(session, client, hid, roster, tr, tid_a, tid_b, md, label,
     if dry_run:
         session.rollback()
         print("    (dry-run: 저장 안 함)")
-        return
+        return roster
     save_and_rate(session, match, rows)
     session.commit()
     try:
@@ -154,6 +195,7 @@ def _ingest_confirmed(session, client, hid, roster, tr, tid_a, tid_b, md, label,
         session.rollback()
         print(f"    (h2h 갱신 실패, 무해: {type(e).__name__})")
     print("    확정 저장 완료.")
+    return roster
 
 
 def _ingest_review(session, client, hid, roster, tr, tid_a, tid_b, md, label,
@@ -206,25 +248,29 @@ def _print_roster(label, hid, tr, tid_a, tid_b, roster, rendered) -> None:
               f"{r['k']}/{r['d']}/{r['a']}  {pid_s}")
 
 
-def _ingest_one(session, client, hid: str, links, dry_run: bool, review: bool) -> None:
+def _ingest_one(session, client, hid: str, links, dry_run: bool, review: bool,
+                auto_register: bool = False) -> list[dict] | None:
     if session.scalars(
         select(Match).where(Match.external_match_id == hid)
     ).first() is not None:
         print(f"[skip] 이미 적재됨: {hid}")
-        return
+        return None
 
     match_raw = client.get_match(config.HENRIK_REGION, hid)
     roster = _parse_roster(match_raw)
     tr = _team_rounds(match_raw)
     if len(tr) != 2:
         print(f"[fail] 팀 라운드 파싱 실패({hid}): teams={tr}")
-        return
+        return None
     tid_a, tid_b = sorted(tr.keys())
     md = match_raw.get("metadata") or {}
     label = f"{_map_kr(match_raw)} {_kst_played_at(md.get('started_at'))}"
 
-    fn = _ingest_review if review else _ingest_confirmed
-    fn(session, client, hid, roster, tr, tid_a, tid_b, md, label, links, dry_run)
+    if review:
+        return _ingest_review(session, client, hid, roster, tr, tid_a, tid_b, md,
+                              label, links, dry_run)
+    return _ingest_confirmed(session, client, hid, roster, tr, tid_a, tid_b, md,
+                             label, links, dry_run, auto_register)
 
 
 def _parse_links(args: list[str]) -> dict[tuple[str, str], int]:

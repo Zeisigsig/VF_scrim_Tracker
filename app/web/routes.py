@@ -380,6 +380,28 @@ def api_ingest(
     return JSONResponse({"match_id": match.id, "review_url": f"/review/{match.id}"})
 
 
+class AutoIngestPayload(BaseModel):
+    nicks: list[str]
+
+
+@router.post("/api/auto-ingest")
+def api_auto_ingest(
+    payload: AutoIngestPayload,
+    x_ingest_key: str | None = Header(default=None, alias="X-Ingest-Key"),
+):
+    """디코닉 리스트로 그날 커스텀 내전을 자동 검색·확정 적재(OCR 없이).
+
+    로컬 트리거가 보낸 디코닉을 받아 여기(클라우드, Henrik 키 보유)서 실행한다.
+    인증은 /api/ingest 와 같은 공유 시크릿(X-Ingest-Key). Henrik 페이싱 때문에
+    수십 초 걸릴 수 있으나 sync 라우트라 threadpool 에서 돌아 이벤트루프를 막지 않는다.
+    """
+    if not config.INGEST_API_KEY or x_ingest_key != config.INGEST_API_KEY:
+        raise HTTPException(status_code=401, detail="invalid ingest key")
+    from app.tools.auto_ingest import execute
+
+    return JSONResponse(execute(payload.nicks))
+
+
 # --- 인박스 처리 (스펙 §5.0) --------------------------------------------
 
 @router.post("/inbox/process")
