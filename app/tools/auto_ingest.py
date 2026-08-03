@@ -36,7 +36,7 @@ from app.henrik.enrich import _parse_roster
 from app.services import _norm_nick
 from app.tools.ingest_match import _ingest_one, _kst_played_at, _map_kr, _resolve
 
-_MATCHES_PER_SEED = 2  # 시드당 후보로 볼 최근 표준 커스텀 수 (내전 직후 실행 전제)
+_MATCHES_PER_SEED = 6  # 시드당 후보로 볼 최근 표준 커스텀 수 (내전 직후, 여러 맵 커버)
 _PREFIX = re.compile(r"^\d{2}\s+")  # 디코닉 앞 생년 2자리 접두 (예: "97 승진")
 
 
@@ -78,10 +78,23 @@ def _seed_accounts(session, player_id: int) -> list[tuple[str, str]]:
     return [(a.riot_name, a.riot_tag) for a in accts]
 
 
+def _is_custom(m: dict) -> bool:
+    """비공개 커스텀 게임인지. queue.id 는 최근 내전이 ''(빈값)이라 신뢰 불가 →
+    queue.name == 'Custom Game' 로 판별한다(경쟁전=Competitive 등은 제외)."""
+    q = (m.get("metadata") or {}).get("queue") or {}
+    return (q.get("name") or "").strip().lower() == "custom game"
+
+
 def _custom_items(client, name: str, tag: str) -> list[dict]:
-    """계정의 최근 커스텀 매치(인라인 로스터 포함, match_id 있는 것만) 최신순."""
-    items = client.get_matches(config.HENRIK_REGION, name, tag, mode="custom")
-    return [m for m in items if (m.get("metadata") or {}).get("match_id")]
+    """계정의 최근 커스텀 매치(인라인 로스터 포함, match_id 있는 것만) 최신순.
+
+    Henrik `mode='custom'` 필터는 queue.id=='custom' 만 잡는데, 최근 내전은
+    queue.id 가 ''(빈값)이라 그 필터로는 통째로 누락되고 옛날 것만 반환된다.
+    → 필터 없이 최근 전체 매치를 받아 queue.name=='Custom Game' 로 로컬 필터한다
+    (내전 직후 실행 전제라 최근 창에 그날 내전이 들어온다)."""
+    items = client.get_matches(config.HENRIK_REGION, name, tag)
+    return [m for m in items
+            if (m.get("metadata") or {}).get("match_id") and _is_custom(m)]
 
 
 def _is_standard(m: dict) -> bool:
