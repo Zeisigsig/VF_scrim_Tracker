@@ -293,41 +293,48 @@ def ingest_ids(match_ids: list[str], dry_run: bool = False) -> dict:
 
 
 def _print_result(r: dict) -> None:
-    tag = " (dry-run)" if r["dry_run"] else ""
+    tag = " (dry-run · 실제 저장 안 함)" if r["dry_run"] else ""
     saved = sum(1 for m in r["matches"] if m["saved"])
-    print(f"\n===== 자동 적재 요약{tag} =====")
-    print(f"자동 적재(낯선 0명): {len(r['matches'])}개 (신규 저장 {saved}, 기존 {len(r['matches']) - saved})")
-    for m in r["matches"]:
-        mark = "저장" if m["saved"] else "기존"
-        print(f"  [{mark}] {m['map']} {m['played_at']} ({m['match_id']})")
-    for m in r.get("pending", []):
-        typed = sum(1 for x in m["roster"] if x["typed"])
-        print(f"[확인필요] {m['map']} {m['played_at']} · 낯선 {m['strangers']}명 "
-              f"(입력 {typed}명) ({m['match_id']})")
-        for x in m["roster"]:
-            print(f"    {'입력' if x['typed'] else '낯선'}  {x['label']}")
-        print(f"    → 적재하려면: uv run python -m app.tools.auto_ingest --ingest {m['match_id']}")
+    pend = r.get("pending", [])
+    print(f"\n===== 결과{tag} =====")
+    print(f"✅ 저장됨: {saved}개    ❓ 확인 필요(아직 저장 안 됨): {len(pend)}개")
+    if not saved and not pend:
+        print("   (이번에 새로 잡힌 내전 없음)")
+
+    if r["matches"]:
+        print("\n[저장된 매치]")
+        for m in r["matches"]:
+            mark = "저장" if m["saved"] else "기존"
+            print(f"  ✅ {m['map']} {m['played_at']} ({m['match_id'][:8]}) [{mark}]")
+    if pend:
+        print("\n[확인 필요 — 아직 저장 안 됨. 아래 명령으로 골라 적재]")
+        for m in pend:
+            typed = sum(1 for x in m["roster"] if x["typed"])
+            print(f"  ❓ {m['map']} {m['played_at']} · 낯선 {m['strangers']}명 (입력 {typed}명)")
+            for x in m["roster"]:
+                print(f"       {'입력' if x['typed'] else '낯선'}  {x['label']}")
+            print(f"     → 적재: uv run python -m app.tools.auto_ingest --ingest {m['match_id']}")
     if r["new_players"]:
-        print(f"신규 유저 {len(r['new_players'])}: " + ", ".join(r["new_players"]))
+        print(f"\n신규 유저 {len(r['new_players'])}: " + ", ".join(r["new_players"]))
     if r["new_accounts"]:
         print(f"Riot 계정 채움 {len(r['new_accounts'])}: " + ", ".join(r["new_accounts"]))
+
+    notes = []  # 적재 여부와 무관한 정보 — 조치 안 해도 됨
     if r["unmatched"]:
-        print(f"[디코닉 미매칭·적재는 가능] {', '.join(r['unmatched'])}"
-              f" — 디코닉만 안 붙었을 뿐 발로닉으로는 이미 등록된 경우가 많음."
-              f" 위 [확인필요] 매치를 적재하면 로스터의 이 사람들도 발로닉으로"
-              f" 자동 연결/생성됩니다(적재를 막지 않음).")
+        notes.append(f"디코닉 미매칭: {', '.join(r['unmatched'])} "
+                     f"(발로닉으로 이미 등록된 경우 많음 · 위 매치 적재 시 자동 연결)")
     if r.get("ambiguous"):
-        print(f"[선택필요] 여러 명 매칭 {len(r['ambiguous'])}:")
-        for a in r["ambiguous"]:
-            print(f"  {a}")
+        notes.append("여러 명 매칭(정확히 입력): " + " / ".join(r["ambiguous"]))
     if r["no_account"]:
-        print(f"[미해결] Riot 계정 미연결 {len(r['no_account'])}: " + ", ".join(r["no_account"]))
+        notes.append(f"Riot 계정 미연결(그 사람 기준 검색만 불가): {', '.join(r['no_account'])}")
     if r["no_matches"]:
-        print(f"[정보] 최근 커스텀 없음 {len(r['no_matches'])}: " + ", ".join(r["no_matches"]))
+        notes.append(f"최근 커스텀 없음: {', '.join(r['no_matches'])}")
     if r.get("filtered"):
-        print(f"[제외] 비표준/무관 매치 {len(r['filtered'])}:")
-        for f in r["filtered"]:
-            print(f"  {f}")
+        notes.append("비표준 매치 제외: " + " / ".join(r["filtered"]))
+    if notes:
+        print("\n── 참고 (적재와 무관 · 조치 안 해도 됨) ──")
+        for n in notes:
+            print(f"  · {n}")
 
 
 def main() -> None:
@@ -341,7 +348,8 @@ def main() -> None:
         ids = [a for a in argv if a != "--ingest"]
         r = ingest_ids(ids, dry_run)
         saved = sum(1 for m in r["matches"] if m["saved"])
-        print(f"확정 적재: {len(r['matches'])}개 (신규 저장 {saved})")
+        tag = " (dry-run · 실제 저장 안 함)" if dry_run else ""
+        print(f"✅ 저장됨: {saved}개{tag}")
         if r["new_players"]:
             print(f"신규 유저 {len(r['new_players'])}: " + ", ".join(r["new_players"]))
         if r["new_accounts"]:

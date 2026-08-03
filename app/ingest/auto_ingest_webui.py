@@ -45,6 +45,9 @@ PAGE = """<!doctype html>
   #out{width:min(560px,90vw);margin-top:1.2rem}
   .card{background:#161922;border-radius:10px;padding:.7rem .9rem;margin-bottom:.5rem;font-size:.9rem}
   .card h3{margin:0 0 .4rem;font-size:.95rem}
+  .card.verdict{background:#13241a;border:1px solid #2d6b45}
+  .card.verdict h3{font-size:1.05rem}
+  .card.muted h3.muted{font-size:.82rem;font-weight:500}
   .row{display:flex;gap:.5rem;padding:.15rem 0}
   .ok{color:#63d18b} .skip{color:#d9b64e} .warn{color:#f2726f} .muted{color:#8a93a6}
   .pend{border:1px solid #4a3d2a}
@@ -85,22 +88,30 @@ function pendingCard(m){
 function render(d){
   const saved=d.matches.filter(m=>m.saved).length;
   const ml=d.matches.map(matchLine);
-  let html=card(`자동 적재 ${d.matches.length}개 (신규 ${saved}, 기존 ${d.matches.length-saved})`, ml);
+  const pend=d.pending||[];
+  let html=`<div class="card verdict"><h3>✅ 저장됨 ${saved}개`
+    +` · ❓ 확인 필요(아직 저장 안 됨) ${pend.length}개</h3>`
+    +((!saved && !pend.length)?`<div class="row muted">이번에 새로 잡힌 내전이 없어요</div>`:'')
+    +`</div>`;
+  html+=card('저장된 매치', ml, 'ok');
   html+=card('신규 유저', d.new_players, 'ok');
   html+=card('Riot 계정 채움', d.new_accounts, 'ok');
-  const pend=d.pending||[];
   if(pend.length){
-    html+=`<div class="card"><h3>❓ 확인 필요 — 낯선(입력 안 됨) 사람이 낀 매치. `
-      +`낯선 중엔 디코닉만 안 붙은 기존 유저도 있습니다. 적재할 것만 체크하세요 `
-      +`(적재 시 로스터 전원 발로닉으로 자동 연결/생성)</h3>`
+    html+=`<div class="card"><h3>❓ 확인 필요 — 아직 저장 안 됨. 적재할 것만 체크하세요 `
+      +`(낯선 중엔 디코닉만 안 붙은 기존 유저도 있고, 적재 시 로스터 전원 발로닉으로 자동 연결/생성)</h3>`
       +pend.map(pendingCard).join('')
       +`<button id="confirm" class="btn">선택 적재</button></div>`;
   }
-  html+=card('디코닉 미매칭 — 적재는 가능 (아래 매치를 적재하면 발로닉으로 자동 연결/생성됩니다)', d.unmatched, 'skip');
-  html+=card('⚠️ 여러 명 매칭(정확히 입력)', d.ambiguous, 'warn');
-  html+=card('⚠️ Riot 계정 미연결(자동검색 불가)', d.no_account, 'warn');
-  html+=card('제외됨(비표준 매치)', d.filtered, 'skip');
-  html+=card('최근 커스텀 없음', d.no_matches, 'skip');
+  const notes=[];
+  if(d.unmatched&&d.unmatched.length) notes.push('디코닉 미매칭: '+d.unmatched.join(', ')+' (발로닉으로 이미 등록된 경우 많음 · 위 매치 적재 시 자동 연결)');
+  if(d.ambiguous&&d.ambiguous.length) notes.push('여러 명 매칭(정확히 입력): '+d.ambiguous.join(' / '));
+  if(d.no_account&&d.no_account.length) notes.push('Riot 계정 미연결(그 사람 기준 검색만 불가): '+d.no_account.join(', '));
+  if(d.no_matches&&d.no_matches.length) notes.push('최근 커스텀 없음: '+d.no_matches.join(', '));
+  if(d.filtered&&d.filtered.length) notes.push('비표준 매치 제외: '+d.filtered.join(' / '));
+  if(notes.length){
+    html+=`<div class="card muted"><h3 class="muted">참고 (적재와 무관 · 조치 안 해도 됨)</h3>`
+      +notes.map(t=>`<div class="row muted">· ${esc(t)}</div>`).join('')+`</div>`;
+  }
   out.innerHTML=html || '<div class="card muted">처리 결과 없음</div>';
   const cb=document.getElementById('confirm');
   if(cb) cb.addEventListener('click',confirmSel);
