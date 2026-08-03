@@ -312,7 +312,10 @@ def _print_result(r: dict) -> None:
     if r["new_accounts"]:
         print(f"Riot 계정 채움 {len(r['new_accounts'])}: " + ", ".join(r["new_accounts"]))
     if r["unmatched"]:
-        print(f"[미해결] 디코닉 매칭 실패 {len(r['unmatched'])}: " + ", ".join(r["unmatched"]))
+        print(f"[디코닉 미매칭·적재는 가능] {', '.join(r['unmatched'])}"
+              f" — 디코닉만 안 붙었을 뿐 발로닉으로는 이미 등록된 경우가 많음."
+              f" 위 [확인필요] 매치를 적재하면 로스터의 이 사람들도 발로닉으로"
+              f" 자동 연결/생성됩니다(적재를 막지 않음).")
     if r.get("ambiguous"):
         print(f"[선택필요] 여러 명 매칭 {len(r['ambiguous'])}:")
         for a in r["ambiguous"]:

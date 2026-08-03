@@ -91,11 +91,12 @@ function render(d){
   const pend=d.pending||[];
   if(pend.length){
     html+=`<div class="card"><h3>❓ 확인 필요 — 낯선(입력 안 됨) 사람이 낀 매치. `
-      +`적재할 것만 체크하세요 (적재 시 새 유저도 생성됩니다)</h3>`
+      +`낯선 중엔 디코닉만 안 붙은 기존 유저도 있습니다. 적재할 것만 체크하세요 `
+      +`(적재 시 로스터 전원 발로닉으로 자동 연결/생성)</h3>`
       +pend.map(pendingCard).join('')
       +`<button id="confirm" class="btn">선택 적재</button></div>`;
   }
-  html+=card('⚠️ 디코닉 매칭 실패', d.unmatched, 'warn');
+  html+=card('디코닉 미매칭 — 적재는 가능 (아래 매치를 적재하면 발로닉으로 자동 연결/생성됩니다)', d.unmatched, 'skip');
   html+=card('⚠️ 여러 명 매칭(정확히 입력)', d.ambiguous, 'warn');
   html+=card('⚠️ Riot 계정 미연결(자동검색 불가)', d.no_account, 'warn');
   html+=card('제외됨(비표준 매치)', d.filtered, 'skip');
