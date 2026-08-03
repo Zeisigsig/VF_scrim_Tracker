@@ -541,3 +541,72 @@ Windows 배치파일이 WSL을 호출해 GUI 서버를 띄우고 브라우저를
 
 ### 영향
 순수 프런트엔드(템플릿/CSS/JS). 라우트·DB·레이팅 로직 무수정, 서버 동작 동일. `app/web/static/js/` 디렉터리 신규.
+
+## 2026-08-01 — 리더보드 조정점수 전체공개 어드민 토글
+
+### 배경
+조정점수(보정점수) 순위는 원래 어드민만 볼 수 있고 일반 유저는 남의 점수가 `•••`로 가려짐. 어드민이 필요할 때 이걸 **전체공개로 켰다 껐다** 할 수 있는 버튼 요청.
+
+### 저장소: `app_settings` KV 테이블 신설
+요청/유저와 무관한 **사이트 전역 플래그**가 필요한데 기존에 설정 테이블이 없었음. 재사용 가능한 KV로 만듦.
+- `app/db/models.py`: `AppSetting(key PK, value, updated_at)`.
+- `app/db/session.py`: `get_setting(session, key, default)` / `set_setting(session, key, value)`(upsert, commit은 호출측).
+- alembic `0005_app_settings.py`(`down_revision=0004_users`). **단, 앱 시작 시 `init_db()`의 `create_all()`이 없는 테이블을 자동 생성**하므로 로컬/서버 모두 재시작만 해도 테이블 생김 — alembic은 이력 정합용.
+- 플래그 키: `public_adj_score`("1"/"0").
+
+### 마스킹 게이트 (라우트+템플릿 양쪽)
+- `routes.py` 리더보드: `public_scores = get_setting(...) == "1"`, `can_see_scores = is_admin or public_scores`. 조정점수순 정렬(`score`) 허용 집합을 `can_see_scores` 기준으로. 컨텍스트에 `public_scores` 전달.
+- 신규 `POST /leaderboard/toggle-public-scores`(`require_admin`): 플래그 뒤집고 303 리다이렉트.
+- `leaderboard.html`: 어드민 전용 토글 폼(상태 라벨 "켜짐/꺼짐"+안내문), 정렬 `!` 버튼·점수 셀 마스킹 조건에 `or public_scores` 추가, 미공개 안내문은 `not is_admin and not public_scores`일 때만.
+
+### 운영 메모 (배포 후 삽질)
+서버에서 버튼이 안 보임 → 원인은 코드가 아니라 **반영 절차**. ① `alembic` 커맨드 없음=전역 미설치, venv 경로(`.venv/bin/alembic`)로 실행하거나 그냥 재시작으로 대체 가능. ② uvicorn `--reload` 없어 **`systemctl restart vf` 전엔 옛 템플릿 서빙**. ③ 재시작 후에도 안 보이면 브라우저가 페이지 캐시 → 강력 새로고침/시크릿창. 어드민 배지가 보이면 `is_admin`은 True이므로 같은 조건인 버튼도 떠야 정상.
+
+### 영향
+DB 스키마 1테이블 추가(자동 생성), 리더보드 라우트/템플릿 수정. 커밋 `f349009` 푸시 완료.
+
+## 2026-08-02 — 브랜드명 단축 · Vice 정리 · 도메인 변경 · (내일) 대표닉 개편
+
+### 오늘 완료
+1. **브랜드명 단축**: `모여봐요 발로의 숲 내전 트래커` → `내전 트래커`. `app/main.py`(FastAPI title), `base.html`(brand 링크). 커밋 `b9af057` 푸시·배포 완료.
+2. **Vice 정리 (배포 완료)**
+   - **어드민 박탈**: 어드민은 코드가 아니라 env `ADMIN_USERNAMES`로 매 요청 판정 → VM `.env`를 `ADMIN_USERNAMES=Vice,92 제이` → `92 제이`로 수정 후 `systemctl restart vf`. 주의: 어드민 판정 키는 `User.username`(발급 시 디코닉 "Vice")이라, 아래 디코닉 변경과 별개.
+   - **디코닉 `91 Vice`로 변경**: 데이터라 남은 어드민(`92 제이`)이 유저 관리 UI에서 편집. username("Vice")·로그인엔 영향 없음. 나이순 정렬은 앞 두 자리로 `91`→1991.
+   - **리더보드 상단 고정 해제**: `routes.py`의 `SERVER_OWNER="Vice"` 핀 로직 제거(나이순에서 서버장만 맨 위 고정하던 것). 커밋 `adfb804` 푸시·배포 완료.
+3. **도메인 변경** `vf-tracker` → `scrim-tracker` (Tailscale Funnel). 상세는 memory [[project-deploy]]에 정리. 핵심 삽질: **콘솔 머신 rename만으론 funnel URL이 안 바뀜** — DNSName은 바뀌어도 `funnel status`가 옛 이름 유지. 원인=serve/funnel 설정이 대상 호스트명을 **문자열로 저장**. 해결=`tailscale serve reset` 후 `tailscale funnel --bg 8000` 재설정(+ 필요 시 `systemctl restart tailscaled`로 새 DNSName 당겨오기). 로컬 `.env` `CLOUD_BASE_URL`은 이미 새 주소(`scrim-tracker.tail36ee83.ts.net`)라 수정 불필요. 봇은 사이트 링크 미노출이라 무관.
+
+### 시도했다가 철회
+- **리더보드 미로그인 유저 숨김**(로그인 이력 있는 사람만 명단 노출) 구현 후 **철회**. 판정 기준이 애매하고 배포 직후 명단이 텅 비는 문제 → 사용자 결정 "그냥 다 보이게". `last_login_at` 컬럼·마이그레이션 0006까지 만들었다가 전부 되돌림(현재 코드에 없음).
+
+### 내일 — 대표닉/셀프가입 개편 (설계 확정, 미착수)
+현재 표시명 `디코닉 (발로닉)`을 사용자 지정 **대표닉**으로 전환 + Riot ID 기반 셀프 가입. 상세·확정 결정은 memory [[project-repnick-redesign]].
+- **Phase A**: `Player.display_nick`(nullable·유일) + `User.profile_setup_done`(bool) 추가(마이그레이션 0006 재작성). `Player.label` 우선순위 `departed`→대표닉→기존. 로그인 후 **1회 프로필 설정 제안(선택/건너뛰기)**: 아이디 변경(유일성, 단 어드민은 아이디 변경 금지—env 어드민 판정 깨짐)·비번 변경·대표닉 설정.
+- **Phase B**: 비로그인 `/signup` 공개 라우트 — Riot ID(name#tag) → `PlayerRiotAccount` 매칭. 디코닉O(안내 후 대표닉 신규 or 디코닉 사용)/디코닉X(신규 생성)/미매칭(→ `niz___`에게 디스코드 DM 안내 메시지만, 자동발송 아님)/이미 계정 있으면 로그인 유도.
+- **확정 결정**: DM=안내 메시지만 표시, 1회 설정=선택(건너뛰기 가능), 대표닉=중복 불가(유일).
+
+## 2026-08-03 — 디코닉 자동 적재 (OCR 없이 그날 커스텀 내전 검색·확정)
+
+### 배경
+스크린샷/OCR 수급이 불안정해 누락 경기가 생기는데 참가자 디코닉은 항상 아니까, 디코닉만으로 그날 내전을 자동 적재하려는 것. (대표닉/셀프가입 개편은 잠깐 킵.)
+
+### 아이디어: 시드-확장 dedup
+디코닉 여러 개를 주면 → 시드 1명의 Riot 계정으로 Henrik 최근 **커스텀 2개**를 조회·적재 → 그 매치 로스터(10명)에 잡힌 참가자는 이미 처리됐으니 다음 시드 대상에서 제외 → 남은 사람으로 반복. 한 매치가 최대 9명을 커버하므로 40명도 시드 몇 명이면 전부 커버(Henrik 무료티어 30req/min에 유리). **자가치유**: 어떤 이가 시드의 매치에 안 잡히면 스스로 시드가 되어 결국 전원 커버. 재적재는 `external_match_id` 멱등이라 매치 겹쳐도 무해.
+
+### 구현
+- `app/tools/auto_ingest.py` — 시드-확장 루프. `execute(nicks)`가 결과 dict 반환(matches/new_players/new_accounts/unmatched/no_account/no_matches). CLI(`uv run python -m app.tools.auto_ingest "닉1" "닉2" ... [--dry-run]`)와 엔드포인트가 공용. 적재는 기존 `ingest_match` 파이프라인(Henrik `teams[].won`=승패 절대정답) 그대로.
+- `app/tools/ingest_match.py` — **`auto_register` 모드** 추가. 미등록 로스터가 있으면 `SystemExit` 중단 대신 `get_or_create_player(riot_name)`으로 처리: 발로닉(`display_name`)이 이미 있으면 그 유저에 Riot 계정(name#tag/puuid)을 **채워넣고**, 완전 신규면 **새 유저 생성**. 겹치면 사람이 `merge_players`로 정리. `_ingest_one`이 로스터를 반환하도록 리팩터.
+
+### 확정 결정 (2026-08-03)
+① 실행 형태 = **CLI**(웹버튼 아님). ② 매치 범위 = 계정별 **최근 커스텀 2개 고정**(mode='custom', 날짜필터 없음) — 내전 끝난 직후 실행 전제. 알려진 엣지: 오늘 1판만 한 사람이 시드면 어제 커스텀 1개가 딸려올 수 있으나 대개 먼저 covered되어 시드가 안 됨. ③ 미등록 처리 = 위 auto_register(발로닉만 있던 유저 보강 / 완전 신규 생성).
+
+### 로컬 트리거(.bat) — A안(스샷 업로드와 동일 구조)
+`auto_ingest`는 DB에 직접 쓰므로 로컬에서 그냥 돌리면 **로컬 sqlite에만** 기록됨(정본은 VM). 그래서 스샷 업로드처럼 로컬 트리거→VM 실행 구조로:
+- `app/web/routes.py` — **`POST /api/auto-ingest`**(같은 `X-Ingest-Key` 인증). 디코닉 리스트 받아 서버에서 `execute()` 실행, 결과 반환. Henrik 키가 VM에 있어 승패 권위화도 그대로. sync 라우트라 threadpool서 돌아 페이싱이 이벤트루프를 안 막음.
+- `app/ingest/auto_ingest_webui.py` — 로컬 브라우저 페이지(127.0.0.1:**8766**). 텍스트영역에 디코닉 쉼표 붙여넣기 → `/run`이 `CLOUD_BASE_URL`로 프록시 POST. **인증키(INGEST_API_KEY)는 로컬 서버에만** 있고 브라우저 미노출. 한글 입력이 cmd 프롬프트보다 안정적.
+- 바탕화면 `VF 자동적재.bat` — 스샷 `VF 업로드.bat` 미러(포트만 8766, `-m app.ingest.auto_ingest_webui`, CRLF). 레포 밖 로컬 편의파일.
+
+### 배포
+코드 커밋 `6867bd7` 푸시 완료. **VM 반영 절차:** (vf)`git pull` → `exit` → (GCP 계정)`sudo systemctl restart vf`. 반영 전엔 엔드포인트가 없어 로컬 `.bat`이 502. 로컬 `.env`엔 `CLOUD_BASE_URL`·`INGEST_API_KEY` 이미 있음(스샷 push와 공용).
+
+### 영향
+신규 CLI/엔드포인트/로컬 페이지 추가, `ingest_match`에 auto_register 옵션 추가(기존 CLI 동작은 불변—기본은 여전히 미등록 시 중단). 스키마 변경 없음. 미검증 경로: auto_register 실제 미등록 참가자 케이스(로직은 기존 `get_or_create_player` 재사용).
