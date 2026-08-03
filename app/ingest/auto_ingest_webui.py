@@ -47,6 +47,12 @@ PAGE = """<!doctype html>
   .card h3{margin:0 0 .4rem;font-size:.95rem}
   .row{display:flex;gap:.5rem;padding:.15rem 0}
   .ok{color:#63d18b} .skip{color:#d9b64e} .warn{color:#f2726f} .muted{color:#8a93a6}
+  .pend{border:1px solid #4a3d2a}
+  .pend label{display:flex;gap:.5rem;align-items:center;cursor:pointer;font-size:.92rem}
+  .pl{display:flex;flex-wrap:wrap;gap:.3rem;margin:.4rem 0 .1rem 1.6rem}
+  .chip{font-size:.78rem;padding:.08rem .45rem;border-radius:6px;background:#222634}
+  .chip.stranger{background:#3a2626;color:#f2a7a4}
+  #confirm{margin-top:.6rem}
 </style></head>
 <body>
   <h1>VF 자동적재</h1>
@@ -64,19 +70,57 @@ function card(title, items, cls){
   const rows=items.map(t=>`<div class="row ${cls||''}">${t}</div>`).join('');
   return `<div class="card"><h3>${title}</h3>${rows}</div>`;
 }
+function esc(s){return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+function matchLine(m){return `${m.saved?'✅ 저장':'↩︎ 기존'} · ${m.map||'?'} ${m.played_at} `
+    +`<span class="muted">(${m.match_id.slice(0,8)})</span>`;}
+function pendingCard(m){
+  const chips=m.roster.map(x=>`<span class="chip ${x.typed?'':'stranger'}">${esc(x.label)}</span>`).join('');
+  const typed=m.roster.filter(x=>x.typed).length;
+  return `<div class="card pend">`
+    +`<label><input type="checkbox" class="pchk" value="${m.match_id}">`
+    +`<b>${m.map||'?'}</b> ${m.played_at} · <span class="skip">낯선 ${m.strangers}명</span>`
+    +` <span class="muted">(입력 ${typed}명)</span></label>`
+    +`<div class="pl">${chips}</div></div>`;
+}
 function render(d){
   const saved=d.matches.filter(m=>m.saved).length;
-  const ml=d.matches.map(m=>`${m.saved?'✅ 저장':'↩︎ 기존'} · ${m.map||'?'} ${m.played_at} `
-      +`<span class="muted">(${m.match_id.slice(0,8)})</span>`);
-  let html=card(`매치 ${d.matches.length}개 (신규 ${saved}, 기존 ${d.matches.length-saved})`, ml);
+  const ml=d.matches.map(matchLine);
+  let html=card(`자동 적재 ${d.matches.length}개 (신규 ${saved}, 기존 ${d.matches.length-saved})`, ml);
   html+=card('신규 유저', d.new_players, 'ok');
   html+=card('Riot 계정 채움', d.new_accounts, 'ok');
+  const pend=d.pending||[];
+  if(pend.length){
+    html+=`<div class="card"><h3>❓ 확인 필요 — 낯선(입력 안 됨) 사람이 낀 매치. `
+      +`적재할 것만 체크하세요 (적재 시 새 유저도 생성됩니다)</h3>`
+      +pend.map(pendingCard).join('')
+      +`<button id="confirm" class="btn">선택 적재</button></div>`;
+  }
   html+=card('⚠️ 디코닉 매칭 실패', d.unmatched, 'warn');
   html+=card('⚠️ 여러 명 매칭(정확히 입력)', d.ambiguous, 'warn');
   html+=card('⚠️ Riot 계정 미연결(자동검색 불가)', d.no_account, 'warn');
-  html+=card('제외됨(비표준/무관 매치)', d.filtered, 'skip');
+  html+=card('제외됨(비표준 매치)', d.filtered, 'skip');
   html+=card('최근 커스텀 없음', d.no_matches, 'skip');
   out.innerHTML=html || '<div class="card muted">처리 결과 없음</div>';
+  const cb=document.getElementById('confirm');
+  if(cb) cb.addEventListener('click',confirmSel);
+}
+async function confirmSel(){
+  const ids=[...document.querySelectorAll('.pchk:checked')].map(c=>c.value);
+  if(!ids.length){return;}
+  const btn=document.getElementById('confirm');
+  btn.disabled=true; btn.textContent='⏳ 적재 중…';
+  try{
+    const r=await fetch('/confirm',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({match_ids:ids})});
+    const d=await r.json();
+    if(d.error){btn.textContent='오류: '+d.error; btn.disabled=false; return;}
+    const saved=d.matches.filter(m=>m.saved).length;
+    let h=card(`확정 적재 ${d.matches.length}개 (신규 ${saved})`, d.matches.map(matchLine));
+    h+=card('신규 유저', d.new_players, 'ok');
+    h+=card('Riot 계정 채움', d.new_accounts, 'ok');
+    out.insertAdjacentHTML('afterbegin', `<div id="cout">${h}</div>`);
+    btn.textContent='적재 완료';
+  }catch(e){btn.textContent='오류: '+String(e); btn.disabled=false;}
 }
 async function run(){
   const csv=ta.value.trim();
@@ -109,13 +153,26 @@ async def run(payload: dict = Body(...)) -> JSONResponse:
     nicks = [n.strip() for n in (payload.get("nicks_csv") or "").split(",") if n.strip()]
     if not nicks:
         return JSONResponse({"error": "디코닉을 입력하세요"}, status_code=400)
+    return await _proxy("/api/auto-ingest", {"nicks": nicks})
 
+
+@app.post("/confirm")
+async def confirm(payload: dict = Body(...)) -> JSONResponse:
+    if not config.CLOUD_BASE_URL or not config.INGEST_API_KEY:
+        return JSONResponse({"error": "CLOUD_BASE_URL / INGEST_API_KEY 미설정 (.env 확인)"},
+                            status_code=500)
+    match_ids = [m for m in (payload.get("match_ids") or []) if m]
+    if not match_ids:
+        return JSONResponse({"error": "적재할 매치를 선택하세요"}, status_code=400)
+    return await _proxy("/api/auto-ingest/confirm", {"match_ids": match_ids})
+
+
+async def _proxy(path: str, body: dict) -> JSONResponse:
+    """VM 엔드포인트로 프록시. 인증키(INGEST_API_KEY)는 로컬 서버에만·브라우저 미노출."""
     def _work() -> dict:
         with httpx.Client(base_url=config.CLOUD_BASE_URL, timeout=300.0) as client:
             resp = client.post(
-                "/api/auto-ingest",
-                headers={"X-Ingest-Key": config.INGEST_API_KEY},
-                json={"nicks": nicks},
+                path, headers={"X-Ingest-Key": config.INGEST_API_KEY}, json=body,
             )
             resp.raise_for_status()
             return resp.json()

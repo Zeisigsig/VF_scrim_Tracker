@@ -621,4 +621,12 @@ DB 스키마 1테이블 추가(자동 생성), 리더보드 라우트/템플릿 
 - `_MATCHES_PER_SEED`(=2) 캡은 이제 **표준+게이트 통과 매치**에만 적용(중간의 Deathmatch 등을 건너뛰고 진짜 내전 2개를 찾음). dedup(remaining 제거)도 **확정 적재한 매치**에만.
 - 제외한 매치는 `filtered`로 사유(비표준/낯선 N명)와 함께 리포트 — CLI·로컬 페이지에 표시.
 - 드라이런 검증: 스테일 로컬데이터로 그 10명 입력 시 낯선 7~10명·Skirmish/Drift 매치가 전부 `filtered`로 빠짐(공유 내전이 데이터에 없어 0개 — 정상). 실사용은 내전 직후라 typed=실제 로스터 → 낯선 0명 적재.
-- **주의**: 사용자 최초 버그 실행분(10개 오적재)은 **VM 정본 DB**에 들어감(로컬 sqlite엔 없음 → .bat/VM경유 실행). 코드 재배포 후 VM에서 오적재분 삭제(`/match/{id}/delete` 어드민 또는 CLI) + `recompute_all()` 필요.
+- **주의**: 사용자 최초 버그 실행분(10개 오적재)은 **VM 정본 DB**에 들어감(로컬 sqlite엔 없음 → .bat/VM경유 실행). 코드 재배포 후 VM에서 오적재분 삭제(`/match/{id}/delete` 어드민 또는 CLI) + `recompute_all()` 필요. 오적재로 auto_register가 만든 **잡 유저**도 정리 대상 → `Player.created_at` + 경기 0개로 추려 삭제(관련행 포함 하드삭제 후 `recompute_all`).
+
+### 재설계: 하드리젝 → 2단계 확인(plan→confirm) (2026-08-04)
+'낯선 ≤2 하드리젝'은 1명만 넣거나 로스터 일부만 쳤을 때 진짜 내전도 조용히 버렸음. 사용자 요청: **1명만 넣어도 동작하되, 로스터가 미완성(낯선 있음)이면 매치를 보여주고 적재 여부를 물어본다. 적재하면 새 유저도 생성.** 확인 방식은 **로컬 브라우저(webui/.bat)** 선택.
+- `auto_ingest.execute()` = **1단계(plan)**: 시드-확장으로 표준 커스텀 후보를 찾아 — 낯선 0명이면 **바로 확정 적재**(matches), 낯선 있으면 적재 안 하고 **pending**(match_id·map·낯선수·로스터 미리보기[{label,typed}])으로 반환. 이미 적재된 매치는 dedup만. 비표준은 `filtered`. `_MAX_STRANGERS` 하드리젝 제거(대신 `strangers==0`이 자동/확인 경계).
+- `auto_ingest.ingest_ids(match_ids)` = **2단계(confirm)**: 사람이 고른 match_id 들만 `auto_register`로 확정 적재, new_players/new_accounts 반환.
+- `routes.py`: `POST /api/auto-ingest`(plan) + **`POST /api/auto-ingest/confirm`**(match_ids, 같은 X-Ingest-Key).
+- `auto_ingest_webui.py`: pending을 **체크박스+로스터 칩(입력=기본/낯선=빨강)**으로 렌더, `선택 적재` 버튼→`/confirm` 프록시(키는 로컬만). 자동 적재분·신규 유저도 카드로.
+- CLI: plan은 pending을 `[확인필요]`로 출력(각 match_id + `--ingest <id>` 안내), `auto_ingest --ingest <match_id> ...`로 2단계. 드라이런 검증(plan pending 노출·confirm 적재 OK, 두 엔드포인트 등록 확인).
