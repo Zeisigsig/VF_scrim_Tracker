@@ -22,21 +22,34 @@
         <p class="muted">경기 기록 없음.</p>
         {% endif %}
     </div>
-    <div class="panel">
+    <div class="panel" id="agent-panel">
         <h3>요원별 성과</h3>
         {% if agent_stats %}
+        <div class="sort-tabs" data-role="agent-sort">
+            <button type="button" class="btn-tab active" data-sort="games">판수</button>
+            <button type="button" class="btn-tab" data-sort="winrate">승률</button>
+            {% if can_see_scores %}<button type="button" class="btn-tab" data-sort="score">평균 점수</button>{% endif %}
+        </div>
         <table>
             <thead><tr><th>요원</th><th class="num">판수</th><th class="num">전적 (승-패)</th><th class="num">승률</th>{% if can_see_scores %}<th class="num">평균 점수</th>{% endif %}</tr></thead>
-            <tbody>
+            <tbody data-role="agent-rows">
             {% for a in agent_stats %}
             {% set decided = a.win + a.loss %}
-            <tr><td>{{ a.agent }}</td><td class="num">{{ a.games }}</td>
+            <tr data-games="{{ a.games }}"
+                data-winrate="{{ (a.win / decided * 100) if decided else -1 }}"
+                data-score="{{ a.avg_score }}">
+                <td>{{ a.agent }}</td><td class="num">{{ a.games }}</td>
                 <td class="num">{{ a.win }}-{{ a.loss }}{% if a.draw %}-{{ a.draw }}무{% endif %}</td>
                 <td class="num">{% if decided %}{{ "%.0f"|format(a.win / decided * 100) }}%{% else %}-{% endif %}</td>
                 {% if can_see_scores %}<td class="num score">{{ "%.0f"|format(a.avg_score) }}</td>{% endif %}</tr>
             {% endfor %}
             </tbody>
         </table>
+        <div class="pager" data-role="agent-pager" hidden>
+            <button type="button" class="btn-page" data-step="-1">&lsaquo;</button>
+            <span class="pager-label"></span>
+            <button type="button" class="btn-page" data-step="1">&rsaquo;</button>
+        </div>
         {% else %}
         <p class="muted">데이터 없음.</p>
         {% endif %}
@@ -150,6 +163,108 @@
     </div>
 </div>
 {% endif %}
+
+{% set res_kr = {"win": "승", "loss": "패", "draw": "무"} %}
+<div class="panel">
+    <h3>최근 내전</h3>
+    {% if recent_matches %}
+    <div class="recent-grid">
+        {% for r in recent_matches %}
+        <a class="recent-card res-{{ r.result or 'none' }}" href="/match/{{ r.match_id }}">
+            <div class="rc-head">
+                <span>{{ r.date }}</span>
+                <span class="rc-map">{{ r.map }}</span>
+                <span class="rc-res">{{ res_kr.get(r.result, "기록 없음") }}</span>
+            </div>
+            <div class="rc-score">
+                {{ r.my_rounds if r.my_rounds is not none else "?" }} : {{ r.opp_rounds if r.opp_rounds is not none else "?" }}
+                <span class="muted rc-team">{{ r.team }}팀</span>
+            </div>
+            <dl class="rc-stats">
+                <div><dt>요원</dt><dd>{{ r.agent }}</dd></div>
+                <div><dt>K / D / A</dt><dd>{{ r.kills }} / {{ r.deaths }} / {{ r.assists }}</dd></div>
+                <div><dt>ACS</dt><dd>{{ r.acs }}</dd></div>
+                {% if can_see_scores %}<div><dt>표시 점수</dt><dd class="score">{{ "%.0f"|format(r.display_score) }}</dd></div>{% endif %}
+            </dl>
+            <span class="rc-more">경기 상세 &rarr;</span>
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="muted">아직 참가한 내전이 없어요.</p>
+    {% endif %}
+</div>
+
+<div class="panel">
+    <h3>날짜별 내전 <span class="muted hint-sub">버튼을 누르면 그 경기 상세로 이동해요</span></h3>
+    {% if my_matches %}
+    <div class="match-btns" data-role="match-list">
+        {% for r in my_matches %}
+        <a class="match-btn res-{{ r.result or 'none' }}" href="/match/{{ r.match_id }}">
+            <span class="mbtn-date">{{ r.date }}</span>
+            <span class="mbtn-map">{{ r.map }}</span>
+            <span class="mbtn-res">{{ res_kr.get(r.result, "-") }}</span>
+        </a>
+        {% endfor %}
+    </div>
+    <div class="pager" data-role="match-pager" hidden>
+        <button type="button" class="btn-page" data-step="-1">&lsaquo;</button>
+        <span class="pager-label"></span>
+        <button type="button" class="btn-page" data-step="1">&rsaquo;</button>
+    </div>
+    {% else %}
+    <p class="muted">경기 기록 없음.</p>
+    {% endif %}
+</div>
+
+{% if can_see_scores %}
+<div class="panel" id="heat-panel">
+    <h3>맵별 킬·데스 지점 <span class="muted hint-sub">내가 킬한 자리(초록) · 내가 죽은 자리(빨강)</span></h3>
+    {% if heatmap %}
+    <div class="sort-tabs" data-role="heat-maps">
+        {% for h in heatmap %}
+        <button type="button" class="btn-tab {{ 'active' if loop.first }}" data-uuid="{{ h.uuid }}">
+            {{ h.label or "맵" }} <span class="muted">{{ h.kills|length + h.deaths|length }}</span>
+        </button>
+        {% endfor %}
+    </div>
+    <div class="heat-body">
+        <div class="heat-map">
+            <img data-role="heat-img" alt="미니맵" loading="lazy">
+            <div class="heat-dots" data-role="heat-dots"></div>
+        </div>
+        <div class="heat-side">
+            <div class="sort-tabs">
+                <button type="button" class="btn-tab active" data-role="heat-mode" data-mode="both">둘 다</button>
+                <button type="button" class="btn-tab" data-role="heat-mode" data-mode="kills">킬만</button>
+                <button type="button" class="btn-tab" data-role="heat-mode" data-mode="deaths">데스만</button>
+            </div>
+            <label class="chk heat-chk">
+                <input type="checkbox" data-role="heat-rays" checked>
+                방향 표시 <span class="muted hint-sub">킬=내 조준 방향 · 데스=맞은 방향</span>
+            </label>
+            <dl class="rc-stats heat-top">
+                <div><dt>가장 많이 킬한 곳</dt><dd data-role="top-kill" class="pos">-</dd></div>
+                <div><dt>가장 많이 죽은 곳</dt><dd data-role="top-death" class="neg">-</dd></div>
+                <div><dt>이 맵 킬 / 데스</dt><dd data-role="heat-count">-</dd></div>
+            </dl>
+            <table class="heat-table">
+                <thead><tr><th>지점</th><th class="num">킬</th><th class="num">데스</th></tr></thead>
+                <tbody data-role="heat-rows"></tbody>
+            </table>
+        </div>
+    </div>
+    <p class="muted mt-10" data-role="heat-msg" hidden></p>
+    <script id="heat-data" type="application/json">{{ heatmap|tojson }}</script>
+    <script src="/static/js/player-heatmap.js?v=2"></script>
+    {% else %}
+    <p class="muted">아직 킬 좌표 데이터가 없어요.
+       <span class="hint-sub">(Henrik 상세가 연결된 경기부터 쌓입니다 — 과거 경기는 백필 필요)</span></p>
+    {% endif %}
+</div>
+{% endif %}
+
+<script src="/static/js/player-panels.js?v=2"></script>
 
 {% if trend and can_see_scores %}
 <script id="trend-data" type="application/json">{{ {'labels': trend|map(attribute='played_at')|list, 'scores': trend|map(attribute='display_score')|list}|tojson }}</script>

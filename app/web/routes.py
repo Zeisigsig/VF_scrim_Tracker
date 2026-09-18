@@ -12,7 +12,7 @@ from fastapi import (
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app import config
@@ -28,6 +28,8 @@ from app.auth import (
     verify_password,
 )
 from app.db.models import (
+    HeadToHeadKill,
+    KillEvent,
     Match,
     MatchPlayer,
     MatchRating,
@@ -692,6 +694,11 @@ def delete_match(
     match = session.get(Match, match_id)
     if match is None:
         return HTMLResponse("경기를 찾을 수 없음", status_code=404)
+    # SQLite 는 PRAGMA foreign_keys 가 꺼져 있어 ON DELETE CASCADE 가 동작하지 않는다.
+    # ORM 관계가 없는 부가 테이블은 직접 지운다(안 지우면 유령 행이 남아 라이벌
+    # 집계·히트맵에 삭제된 경기가 계속 반영된다).
+    session.execute(delete(KillEvent).where(KillEvent.match_id == match_id))
+    session.execute(delete(HeadToHeadKill).where(HeadToHeadKill.match_id == match_id))
     session.delete(match)
     session.commit()
 
@@ -711,6 +718,54 @@ def _match_result(match: Match, team: str) -> str | None:
         return "draw"
     my, opp = (a, b) if team == "A" else (b, a)
     return "win" if my > opp else "loss"
+
+
+def _kill_heatmap(session: Session, player_id: int) -> list[dict]:
+    """맵별로 '내가 킬한 지점'과 '내가 죽은 지점'의 게임 좌표를 모은다.
+
+    킬 지점 = 킬 순간 내(killer) 위치, 데스 지점 = 내가 쓰러진 위치.
+    방향 표시를 위해 상대 위치도 함께 넘긴다:
+      kills  = [내x, 내y, 내 조준각(rad|null), 상대x, 상대y]
+      deaths = [내x, 내y, 나를 쏜 놈 x, 나를 쏜 놈 y]
+    미니맵 비율 변환과 지점 이름(콜아웃) 붙이기는 브라우저가 /static/maps.json
+    으로 처리한다(서버는 원시 좌표만 넘김).
+    """
+    rows = session.execute(
+        select(KillEvent, Match.map_uuid, Match.map_name)
+        .join(Match, Match.id == KillEvent.match_id)
+        .where(
+            Match.status == "confirmed",
+            Match.map_uuid.is_not(None),
+            or_(KillEvent.killer_id == player_id, KillEvent.victim_id == player_id),
+        )
+    ).all()
+
+    groups: dict[str, dict] = {}
+    for e, map_uuid, map_name in rows:
+        g = groups.setdefault(map_uuid, {"uuid": map_uuid, "names": {}, "kills": [], "deaths": []})
+        if map_name:
+            g["names"][map_name] = g["names"].get(map_name, 0) + 1
+        if e.killer_id == player_id and e.killer_x is not None:
+            g["kills"].append([
+                e.killer_x, e.killer_y,
+                round(e.killer_view, 3) if e.killer_view is not None else None,
+                e.victim_x, e.victim_y,
+            ])
+        if e.victim_id == player_id and e.victim_x is not None:
+            g["deaths"].append([e.victim_x, e.victim_y, e.killer_x, e.killer_y])
+
+    out = []
+    for g in groups.values():
+        if not g["kills"] and not g["deaths"]:
+            continue
+        # 표시명은 그 맵 경기들에서 가장 많이 쓰인 이름(어드민이 손으로 고칠 수 있음).
+        label = max(g["names"].items(), key=lambda kv: kv[1])[0] if g["names"] else ""
+        out.append({
+            "uuid": g["uuid"], "label": label,
+            "kills": g["kills"], "deaths": g["deaths"],
+        })
+    out.sort(key=lambda g: -(len(g["kills"]) + len(g["deaths"])))
+    return out
 
 
 @router.get("/player/{player_id}", response_class=HTMLResponse)
@@ -761,6 +816,31 @@ def player_profile(
         for k, v in sorted(map_agg.items(), key=lambda kv: -len(kv[1]))
     ]
 
+    # 내가 뛴 경기 목록(최신순) — 최근 내전 카드 + 날짜별 버튼 공용.
+    # history 는 played_at 오름차순이라 뒤집어 쓴다. 추가 쿼리 없음.
+    my_matches = []
+    for m, r, mp in reversed(history):
+        res = _match_result(m, mp.team)
+        my_rounds, opp_rounds = (
+            (m.team_a_rounds, m.team_b_rounds) if mp.team == "A"
+            else (m.team_b_rounds, m.team_a_rounds)
+        )
+        my_matches.append({
+            "match_id": m.id,
+            "played_at": m.played_at,
+            "date": m.played_at[:10],
+            "map": m.map_name or "미지정",
+            "result": res,
+            "my_rounds": my_rounds, "opp_rounds": opp_rounds,
+            "team": mp.team, "agent": mp.agent, "acs": mp.acs,
+            "kills": mp.kills, "deaths": mp.deaths, "assists": mp.assists,
+            "display_score": r.display_score,
+        })
+    recent_matches = my_matches[:2]
+
+    # 맵별 킬/데스 지점 (미니맵 히트맵). 본인·어드민만.
+    heatmap = _kill_heatmap(session, player_id) if can_see_scores else []
+
     skill = session.get(SkillRating, player_id)
 
     # 라이벌/천적 (유저간 킬 구도). 상대 표시명을 붙여 넘긴다.
@@ -792,6 +872,8 @@ def player_profile(
             "player": player, "trend": trend,
             "agent_stats": agent_stats, "map_stats": map_stats, "skill": skill,
             "can_see_scores": can_see_scores,
+            "recent_matches": recent_matches, "my_matches": my_matches,
+            "heatmap": heatmap,
             "rivals": rivals, "challengers": challengers,
             "nemeses": nemeses, "prey": prey,
         },

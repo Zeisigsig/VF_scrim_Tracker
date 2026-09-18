@@ -23,6 +23,7 @@ from app.db.models import (
     PlayerTier,
 )
 from app.henrik.client import HenrikClient
+from app.henrik.kill_locations import store_kill_locations
 
 # 랭킹 가드/판정 규칙 (사용자 확정 2026-07-21)
 # 티어는 '차이 크기'가 아니라 '방향'만 본다:
@@ -84,6 +85,8 @@ def populate_match(session: Session, match: Match, client: HenrikClient) -> int:
         return 0
     detail = client.get_match(config.HENRIK_REGION, hid)
     puuid_pid = _puuid_to_player(session, detail)
+    # 같은 상세에서 킬 좌표도 함께 저장 (미니맵 히트맵용, 추가 API 호출 없음).
+    store_kill_locations(session, match, detail, puuid_pid)
     agg: dict[tuple[int, int], int] = defaultdict(int)
     for (kp, vp), n in _kill_pairs(detail).items():
         ki, vi = puuid_pid.get(kp), puuid_pid.get(vp)

@@ -98,6 +98,9 @@ class Match(Base):
     external_match_id: Mapped[str | None] = mapped_column(Text, unique=True)  # Phase 2
     played_at: Mapped[str] = mapped_column(Text, nullable=False, default=_now)
     map_name: Mapped[str | None] = mapped_column(Text)
+    # Riot 맵 UUID (Henrik metadata.map.id). 미니맵/콜아웃 조회 키 — 표시명(map_name)은
+    # 어드민이 손으로 고칠 수 있어 히트맵 그룹핑은 이 값을 쓴다.
+    map_uuid: Mapped[str | None] = mapped_column(Text)
     team_a_rounds: Mapped[int | None] = mapped_column(Integer)
     team_b_rounds: Mapped[int | None] = mapped_column(Integer)
     screenshot_path: Mapped[str | None] = mapped_column(Text)
@@ -175,6 +178,39 @@ class HeadToHeadKill(Base):
     killer_id: Mapped[int] = mapped_column(ForeignKey("players.id"), nullable=False)
     victim_id: Mapped[int] = mapped_column(ForeignKey("players.id"), nullable=False)
     kills: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class KillEvent(Base):
+    """킬 1건의 맵 좌표 (Henrik 상세 kills[] 에서 추출). 미니맵 히트맵용.
+
+    - victim_x/y = 상세의 kills[].location — 희생자가 쓰러진 지점.
+    - killer_x/y = kills[].player_locations[] 중 killer puuid 의 위치(킬 순간).
+    등록 유저로 매핑된 쪽만 id 가 채워지고(미등록은 NULL), 양쪽 다 미등록이면
+    저장하지 않는다. 경기 단위로 지우고 다시 넣어 재백필해도 멱등.
+
+    게임 원시 좌표를 그대로 저장한다 — 미니맵 비율 변환은 표시 시점에 하므로
+    valorant-api 의 맵 계수가 바뀌어도 재백필이 필요 없다.
+    """
+    __tablename__ = "kill_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    match_id: Mapped[int] = mapped_column(
+        ForeignKey("matches.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    round: Mapped[int | None] = mapped_column(Integer)
+    killer_id: Mapped[int | None] = mapped_column(
+        ForeignKey("players.id"), index=True
+    )
+    victim_id: Mapped[int | None] = mapped_column(
+        ForeignKey("players.id"), index=True
+    )
+    killer_x: Mapped[int | None] = mapped_column(Integer)
+    killer_y: Mapped[int | None] = mapped_column(Integer)
+    victim_x: Mapped[int | None] = mapped_column(Integer)
+    victim_y: Mapped[int | None] = mapped_column(Integer)
+    # 킬 순간 killer 의 시선 각도(라디안, 게임 좌표계). 희생자는 player_locations 에
+    # 없어 '죽을 때 내 시선'은 Henrik 이 주지 않는다 — 피격 방향은 killer 위치로 낸다.
+    killer_view: Mapped[float | None] = mapped_column()
 
 
 class User(Base):

@@ -10,6 +10,9 @@
     --border: #2c3038;
 }
 * { box-sizing: border-box; }
+/* hidden 속성은 브라우저 기본 스타일의 display:none 이라 .match-btn{display:inline-flex}
+   같은 작성자 규칙에 밀린다 → JS 로 숨기는 요소가 안 숨겨지므로 여기서 못박는다. */
+[hidden] { display: none !important; }
 body {
     margin: 0;
     background: var(--bg);
@@ -137,6 +140,94 @@ canvas { max-width: 100%; }
 .w-160 { width: 160px; }
 .w-180 { width: 180px; }
 
+/* ===== 개인 페이지: 정렬 탭 · 페이지 넘김 · 내전 카드/버튼 ===== */
+.nav-me { color: var(--text); text-decoration: none; border-bottom: 1px dotted var(--border); }
+.nav-me:hover { color: var(--accent); border-bottom-color: var(--accent); }
+
+.sort-tabs { display: flex; gap: 6px; margin: 4px 0 10px; flex-wrap: wrap; }
+.btn-tab {
+    background: var(--panel2); color: var(--muted); border: 1px solid var(--border);
+    border-radius: 14px; padding: 5px 12px; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.btn-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.btn-tab:hover { color: var(--text); }
+.btn-tab.active:hover { color: #fff; }
+
+.pager { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 10px; }
+.pager .pager-label { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.btn-page {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; min-width: 34px; padding: 4px 10px; font-size: 16px; line-height: 1.2; cursor: pointer;
+}
+.btn-page:disabled { opacity: 0.35; cursor: default; }
+.btn-page:not(:disabled):hover { border-color: var(--accent); color: var(--accent); }
+
+/* 승/패에 따라 왼쪽 띠 색을 달리해 한눈에 구분 */
+.res-win { border-left: 3px solid var(--green); }
+.res-loss { border-left: 3px solid var(--red); }
+.res-draw, .res-none { border-left: 3px solid var(--border); }
+
+.recent-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.recent-card {
+    display: block; background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 14px; color: var(--text); text-decoration: none;
+}
+.recent-card:hover { border-color: var(--accent); }
+.rc-head { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+.rc-map { color: var(--text); font-weight: 600; }
+.rc-res { margin-left: auto; font-weight: 700; }
+.res-win .rc-res { color: var(--green); }
+.res-loss .rc-res { color: var(--red); }
+.rc-score { font-size: 22px; font-weight: 700; margin: 6px 0 10px; font-variant-numeric: tabular-nums; }
+.rc-team { font-size: 12px; font-weight: 400; margin-left: 6px; }
+.rc-stats { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; }
+.rc-stats > div { display: contents; }
+.rc-stats dt { color: var(--muted); font-size: 12px; }
+.rc-stats dd { margin: 0; font-variant-numeric: tabular-nums; }
+.rc-more { display: inline-block; margin-top: 10px; color: #7db3ff; font-size: 12px; }
+
+/* 한 줄에 4칸 고정 — 맵/날짜 이름이 길어도 버튼이 아래로 밀리지 않는다. */
+.match-btns { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.match-btn {
+    display: flex; align-items: center; gap: 8px; background: var(--panel2);
+    border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px;
+    color: var(--text); text-decoration: none; font-size: 13px;
+    min-width: 0; overflow: hidden;
+}
+.mbtn-map { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.match-btn .mbtn-res { margin-left: auto; }
+.match-btn:hover { border-color: var(--accent); }
+.mbtn-date { color: var(--muted); font-variant-numeric: tabular-nums; }
+.mbtn-map { font-weight: 600; }
+.mbtn-res { font-weight: 700; }
+.res-win .mbtn-res { color: var(--green); }
+.res-loss .mbtn-res { color: var(--red); }
+.res-draw .mbtn-res, .res-none .mbtn-res { color: var(--muted); }
+
+/* ===== 맵별 킬·데스 히트맵 ===== */
+.heat-body { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+/* 점은 % 좌표라 이미지가 줄어도 따라간다 — 래퍼가 이미지와 같은 크기여야 함. */
+.heat-map { position: relative; line-height: 0; background: #0b0d11; border-radius: 6px; }
+.heat-map img { width: 100%; display: block; border-radius: 6px; }
+.heat-dots { position: absolute; inset: 0; }
+.heat-dot {
+    position: absolute; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px;
+    border-radius: 50%; opacity: 0.8; border: 1px solid rgba(0, 0, 0, 0.55);
+}
+.dot-kill { background: var(--green); }
+.dot-death { background: var(--red); }
+/* 방향 표시: 점에서 뻗는 짧은 선. 킬=내 조준 방향, 데스=총알이 날아온 쪽. */
+.heat-ray {
+    position: absolute; width: 20px; height: 2px; margin-top: -1px;
+    transform-origin: 0 50%; opacity: 0.5; pointer-events: none;
+}
+.ray-kills { background: linear-gradient(90deg, var(--green), rgba(74, 222, 128, 0)); }
+.ray-deaths { background: linear-gradient(90deg, var(--red), rgba(248, 113, 113, 0)); }
+.heat-chk { display: inline-flex; align-items: center; gap: 6px; margin: 2px 0 10px; font-size: 12px; }
+.heat-chk input { width: auto; }
+.heat-top { margin: 12px 0 14px; }
+.heat-table th, .heat-table td { padding: 5px 8px; }
+
 /* players: Riot ID 칩 (구 인라인 <style> 이전) */
 .riot-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px;
     margin: 1px 3px 1px 0; border: 1px solid var(--border); border-radius: 10px;
@@ -170,4 +261,15 @@ canvas { max-width: 100%; }
     /* '내 정보' 정의목록은 라벨/값 1열로 */
     .info { grid-template-columns: 1fr; gap: 2px 0; }
     .info dt { margin-top: 8px; }
+    /* 최근 내전 카드는 세로 1단, 날짜 버튼은 한 줄 전체 폭 */
+    .recent-grid { grid-template-columns: 1fr; gap: 10px; }
+    /* 좁은 화면에선 4칸이 안 되니 2칸(내전 짝수 단위) → 더 좁으면 1칸 */
+    .match-btns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    /* 히트맵은 미니맵 위, 요약/표 아래로 1단 */
+    .heat-body { grid-template-columns: 1fr; gap: 12px; }
+    /* 미니맵 안의 점은 패널 가로 스크롤 규칙에서 제외 */
+    .panel .heat-map { min-width: 0; }
+}
+@media (max-width: 400px) {
+    .match-btns { grid-template-columns: 1fr; }
 }

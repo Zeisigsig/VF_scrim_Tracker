@@ -18,7 +18,7 @@ import sys
 from sqlalchemy import func, select
 
 from app import config
-from app.db.models import HeadToHeadKill, Match, MatchPlayer, Player
+from app.db.models import HeadToHeadKill, KillEvent, Match, MatchPlayer, Player
 from app.db.session import SessionLocal, init_db
 from app.henrik.client import HenrikClient
 from app.henrik.enrich import Enricher
@@ -90,9 +90,14 @@ def run(recover: bool = False, force: bool = False) -> int:
                     recovered += 1
                     print(f"역추적 OK #{m.id} → {hid}")
 
+                # 킬 구도와 킬 좌표를 같은 상세 1회 호출로 채운다. 둘 중 하나라도
+                # 비어 있으면 다시 돈다(좌표 기능 도입 전 채워진 경기 자동 보강).
                 has = session.scalar(
                     select(func.count()).select_from(HeadToHeadKill)
                     .where(HeadToHeadKill.match_id == m.id)
+                ) and session.scalar(
+                    select(func.count()).select_from(KillEvent)
+                    .where(KillEvent.match_id == m.id)
                 )
                 if has and not force:
                     print(f"skip (이미 채워짐): #{m.id}")
