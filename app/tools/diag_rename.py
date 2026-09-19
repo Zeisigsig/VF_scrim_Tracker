@@ -46,12 +46,20 @@ def _find_players(session, hints: list[str]) -> list[Player]:
     found: dict[int, Player] = {}
     all_players = list(session.scalars(select(Player)))
     aliases = list(session.scalars(select(PlayerAlias)))
+    # Riot 닉은 Player 가 아니라 PlayerRiotAccount 에 있다(과거 p.riot_name 을
+    # 읽어 AttributeError 로 죽던 버그).
+    accounts = list(session.scalars(select(PlayerRiotAccount)))
     for h in hints:
         hl = h.lower()
         for p in all_players:
-            fields = [p.display_name, p.discord_name, p.riot_name]
+            fields = [p.display_name, p.discord_name]
             if any(f and hl in f.lower() for f in fields):
                 found[p.id] = p
+        for ac in accounts:
+            if hl in f"{ac.riot_name}#{ac.riot_tag}".lower():
+                pp = session.get(Player, ac.player_id)
+                if pp:
+                    found[pp.id] = pp
         for al in aliases:
             if al.alias and hl in al.alias.lower():
                 pp = session.get(Player, al.player_id)

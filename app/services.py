@@ -21,6 +21,7 @@ from app.db.models import (
     MatchRating,
     Player,
     PlayerAlias,
+    PlayerRiotAccount,
     PlayerTier,
     SkillRating,
 )
@@ -78,6 +79,94 @@ def get_or_create_player(session: Session, display_name: str) -> Player:
     session.add(p)
     session.flush()
     return p
+
+
+def sync_player_nick(
+    session: Session, player_id: int, riot_name: str, riot_tag: str,
+    puuid: str | None = None,
+) -> list[str]:
+    """Henrik 로스터의 '현재 Riot 닉'으로 발로닉·Riot 계정을 따라가게 한다(리네임 추종).
+
+    인게임 닉을 바꿔도 puuid 는 불변이라 적재는 같은 사람으로 정확히 붙지만
+    (ingest_match._resolve), display_name 을 갱신하는 코드가 어디에도 없어
+    표시명이 옛 닉에 굳어 있었다(2026-09-19 Monalisa→Orbit). 옛 닉은 별칭으로
+    남겨 과거 스크린샷 OCR 이 계속 매칭되게 한다.
+
+    **puuid 로 신원이 확정된 Henrik 로스터에서만 호출할 것.** OCR 닉으로 부르면
+    깨진 닉이 발로닉을 덮어쓴다(그래서 웹 확정 경로는 지금대로 별칭만 등록한다).
+
+    반환: 사람이 읽을 변경/경고 메시지 목록(변경 없으면 빈 리스트).
+    """
+    logs: list[str] = []
+    player = session.get(Player, player_id)
+    name = (riot_name or "").strip()
+    if player is None or not name:
+        return logs
+    tag = (riot_tag or "").strip()
+
+    accounts = list(session.scalars(
+        select(PlayerRiotAccount).where(PlayerRiotAccount.player_id == player_id)
+    ))
+
+    # 1) Riot 계정 행 갱신. puuid 가 불변키라 그 행의 name#tag 를 제자리 수정한다
+    #    ((player_id, riot_name, riot_tag) 유니크라 새 행을 넣으면 같은 사람의
+    #    계정이 둘로 늘어난다).
+    acct = next((a for a in accounts if puuid and a.puuid == puuid), None)
+    if acct is None:
+        acct = next(
+            (a for a in accounts
+             if _norm_nick(a.riot_name) == _norm_nick(name)
+             and _norm_nick(a.riot_tag) == _norm_nick(tag)),
+            None,
+        )
+    if acct is not None:
+        if puuid and not acct.puuid:
+            acct.puuid = puuid
+            logs.append(f"puuid 보강: {acct.riot_name}#{acct.riot_tag}")
+        if (acct.riot_name, acct.riot_tag) != (name, tag):
+            dup = next(
+                (a for a in accounts if a is not acct
+                 and _norm_nick(a.riot_name) == _norm_nick(name)
+                 and _norm_nick(a.riot_tag) == _norm_nick(tag)),
+                None,
+            )
+            if dup is None:
+                logs.append(
+                    f"Riot 계정: {acct.riot_name}#{acct.riot_tag} → {name}#{tag}"
+                )
+                acct.riot_name, acct.riot_tag = name, tag
+
+    # 2) 발로닉(display_name). 계정이 여럿(부계)이면 어느 계정 닉을 대표로 쓸지
+    #    규칙이 없어 자동 갱신하지 않고 사람에게 알리기만 한다.
+    if player.display_name == name:
+        session.flush()
+        return logs
+    if len(accounts) > 1:
+        logs.append(
+            f"[확인] {player.display_name}: Riot 계정 {len(accounts)}개라 발로닉 "
+            f"자동갱신 보류 (이 판의 닉={name})"
+        )
+        session.flush()
+        return logs
+
+    old = player.display_name
+    player.display_name = name
+    logs.append(f"발로닉: {old} → {name}")
+    # 옛 닉·새 닉 둘 다 별칭으로. OCR 자동매칭(matcher.match_nickname)은 별칭
+    # 정확일치만 보므로 새 닉도 넣어야 다음 스크린샷이 자동으로 붙는다.
+    for al in (old, name):
+        taken = session.scalar(select(PlayerAlias).where(PlayerAlias.alias == al))
+        if taken is None:
+            session.add(PlayerAlias(player_id=player_id, alias=al))
+        elif taken.player_id != player_id:
+            # alias 는 전역 유니크라 조용히 건너뛰면 그 닉이 계속 남의 것을
+            # 가리킨다(OCR 오매칭). 덮어쓰지 않고 사람에게 알린다.
+            logs.append(
+                f"[경고] 별칭 '{al}' 은 이미 다른 유저(id={taken.player_id})에 "
+                f"등록돼 있어 건너뜀 — OCR 오매칭 위험"
+            )
+    session.flush()
+    return logs
 
 
 def merge_players(session: Session, source_id: int, target_id: int) -> None:

@@ -30,7 +30,12 @@ from app.henrik.client import HenrikClient
 from app.henrik.enrich import _parse_roster, _team_rounds
 from app.henrik.head_to_head import populate_match
 from app.ingest.schemas import ExtractedRow, ExtractionResult
-from app.services import ConfirmedRow, get_or_create_player, save_and_rate
+from app.services import (
+    ConfirmedRow,
+    get_or_create_player,
+    save_and_rate,
+    sync_player_nick,
+)
 
 _KST = timezone(timedelta(hours=9))
 
@@ -125,6 +130,19 @@ def _resolve(session, roster: list[dict]) -> tuple[dict[int, int], list[dict]]:
     return mapping, unresolved
 
 
+def _sync_nicks(session, roster: list[dict], mapping: dict[int, int]) -> None:
+    """로스터의 현재 Riot 닉으로 발로닉·계정을 따라가게 한다(리네임 추종).
+
+    로스터 닉은 puuid 로 신원이 확정된 권위값이라 그대로 반영해도 안전하다.
+    바뀐 내용은 조용히 넘기지 않고 출력한다(어드민이 손으로 맞춰둔 이름이
+    되돌아갈 수 있어 흔적이 남아야 한다).
+    """
+    for i, pid in mapping.items():
+        r = roster[i]
+        for msg in sync_player_nick(session, pid, r["name"], r["tag"], r["puuid"]):
+            print(f"    [닉] {msg}")
+
+
 def _agent_kr(agent_en: str | None) -> str:
     return config.agent_kr_from_en(agent_en) or (agent_en or "?")
 
@@ -160,6 +178,7 @@ def _ingest_confirmed(session, client, hid, roster, tr, tid_a, tid_b, md, label,
             session.rollback()
             return None
 
+    _sync_nicks(session, roster, mapping)
     rounds_total = tr[tid_a] + tr[tid_b]
     rows = [
         ConfirmedRow(
@@ -203,6 +222,8 @@ def _ingest_review(session, client, hid, roster, tr, tid_a, tid_b, md, label,
     """검토 대기(pending)로 저장 → 웹 /review 에서 사람이 확인 후 확정. 미등록은 검토창에서 처리."""
     _apply_links(session, roster, links)
     mapping, _ = _resolve(session, roster)
+    # 검토창 자동매칭이 새 닉을 쓰도록 names 계산 전에 갱신한다.
+    _sync_nicks(session, roster, mapping)
     names = {pid: (session.get(Player, pid).display_name) for pid in set(mapping.values())}
     rounds_total = tr[tid_a] + tr[tid_b]
     ex_rows = []
