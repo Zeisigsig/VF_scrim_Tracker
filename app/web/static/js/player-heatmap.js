@@ -162,6 +162,62 @@
         });
     });
 
+    /* ---- 확대 보기 -------------------------------------------------------
+       점은 % 좌표라 래퍼(.heat-map)만 커지면 그대로 따라오고, 점·방향선은 px
+       고정이라 상대적으로 작아진다 → 밀집 구역의 겹침이 풀린다. DOM 을 복제하면
+       상태(모드·방향 토글)를 양쪽에 동기화해야 하므로, 원본 노드를 오버레이로
+       '옮겼다가' 닫을 때 제자리로 되돌린다. */
+    var zoom = panel.querySelector('[data-role="heat-zoom"]');
+    var zoomSlot = panel.querySelector('[data-role="heat-zoom-slot"]');
+    var zoomBar = panel.querySelector('[data-role="heat-zoom-bar"]');
+    var mapEl = panel.querySelector('.heat-map');
+    var moved = [];
+
+    function moveTo(node, dest) {
+        if (!node) return;
+        moved.push({ node: node, parent: node.parentNode, next: node.nextSibling });
+        dest.appendChild(node);
+    }
+
+    function restoreMoved() {
+        // 옮긴 역순으로 되돌려야 서로의 nextSibling 이 제자리에 있다.
+        for (var i = moved.length - 1; i >= 0; i--) {
+            moved[i].parent.insertBefore(moved[i].node, moved[i].next);
+        }
+        moved = [];
+    }
+
+    function openZoom() {
+        if (!zoom || !zoom.hidden) return;
+        moveTo(mapEl, zoomSlot);
+        var modeBtn = panel.querySelector('[data-role="heat-mode"]');
+        if (modeBtn) moveTo(modeBtn.parentNode, zoomBar);   // 모드 탭 묶음
+        moveTo(panel.querySelector('.heat-chk'), zoomBar);  // 방향 표시 체크박스
+        zoom.hidden = false;
+        document.body.classList.add('heat-zoomed');
+    }
+
+    function closeZoom() {
+        if (!zoom || zoom.hidden) return;
+        zoom.hidden = true;
+        restoreMoved();
+        document.body.classList.remove('heat-zoomed');
+    }
+
+    if (zoom) {
+        mapEl.addEventListener('click', function () {
+            if (zoom.hidden) openZoom();  // 확대 중 지도 클릭은 닫지 않는다(점 확인용)
+        });
+        zoom.addEventListener('click', function (e) {
+            if (e.target === zoom) closeZoom();  // 배경만
+        });
+        panel.querySelector('[data-role="heat-zoom-close"]')
+            .addEventListener('click', closeZoom);
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') closeZoom();
+        });
+    }
+
     show('미니맵 불러오는 중…');
     fetch('/static/maps.json')
         .then(function (r) { return r.json(); })

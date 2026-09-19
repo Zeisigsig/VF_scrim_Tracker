@@ -219,7 +219,7 @@
 
 {% if can_see_scores %}
 <div class="panel" id="heat-panel">
-    <h3>맵별 킬·데스 지점 <span class="muted hint-sub">내가 킬한 자리(초록) · 내가 죽은 자리(빨강)</span></h3>
+    <h3>맵별 킬·데스 지점 <span class="muted hint-sub">내가 킬한 자리(초록) · 내가 죽은 자리(빨강) · 미니맵을 클릭하면 확대</span></h3>
     {% if heatmap %}
     <div class="sort-tabs" data-role="heat-maps">
         {% for h in heatmap %}
@@ -254,9 +254,19 @@
             </table>
         </div>
     </div>
+    {# 확대 보기: 점이 %좌표라 래퍼만 키우면 그대로 따라온다. 원본 .heat-map 을
+       복제하지 않고 이 슬롯으로 '옮겼다' 되돌리므로 재렌더가 필요 없다. #}
+    <div class="heat-zoom" data-role="heat-zoom" hidden>
+        <div class="heat-zoom-box">
+            <div class="heat-zoom-bar" data-role="heat-zoom-bar"></div>
+            <div class="heat-zoom-slot" data-role="heat-zoom-slot"></div>
+        </div>
+        <button type="button" class="heat-zoom-close" data-role="heat-zoom-close"
+                aria-label="닫기" title="닫기 (ESC)">×</button>
+    </div>
     <p class="muted mt-10" data-role="heat-msg" hidden></p>
     <script id="heat-data" type="application/json">{{ heatmap|tojson }}</script>
-    <script src="/static/js/player-heatmap.js?v=2"></script>
+    <script src="/static/js/player-heatmap.js?v=3"></script>
     {% else %}
     <p class="muted">아직 킬 좌표 데이터가 없어요.
        <span class="hint-sub">(Henrik 상세가 연결된 경기부터 쌓입니다 — 과거 경기는 백필 필요)</span></p>

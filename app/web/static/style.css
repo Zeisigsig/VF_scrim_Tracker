@@ -227,6 +227,25 @@ canvas { max-width: 100%; }
 .heat-chk input { width: auto; }
 .heat-top { margin: 12px 0 14px; }
 .heat-table th, .heat-table td { padding: 5px 8px; }
+/* 확대 보기: 미니맵이 전부 정사각(1024²)이라 슬롯도 정사각으로 두면 왜곡이 없다.
+   점(9px)·방향선(20px)은 px 고정이라 맵만 커지며 상대적으로 작아진다 → 겹침 완화. */
+.heat-map { cursor: zoom-in; }
+.heat-zoom .heat-map { cursor: default; }
+.heat-zoom {
+    position: fixed; inset: 0; z-index: 60; padding: 20px;
+    background: rgba(6, 8, 12, 0.92);
+    display: flex; align-items: center; justify-content: center;
+}
+.heat-zoom-box { display: flex; flex-direction: column; gap: 10px; }
+.heat-zoom-slot { width: min(92vw, calc(100vh - 130px)); }
+.heat-zoom-bar { display: flex; flex-wrap: wrap; justify-content: center;
+    align-items: center; gap: 14px; }
+.heat-zoom-bar .heat-chk { margin: 0; }
+.heat-zoom-close { position: absolute; top: 10px; right: 16px; background: none;
+    border: none; color: var(--muted); font-size: 30px; line-height: 1;
+    cursor: pointer; padding: 4px 10px; }
+.heat-zoom-close:hover { color: var(--text); }
+body.heat-zoomed { overflow: hidden; }
 
 /* players: Riot ID 칩 (구 인라인 <style> 이전) */
 .riot-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px;
