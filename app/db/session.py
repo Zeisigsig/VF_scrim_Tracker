@@ -31,6 +31,11 @@ def get_session() -> Iterator[Session]:
         session.close()
 
 
+# merge_renamed(CLI) 가 탐지해 저장하고 웹 유저 관리가 읽어 처리하는 병합 후보.
+# 후보는 많아야 몇 건이라 전용 테이블 대신 KV 한 칸에 JSON 으로 둔다.
+MERGE_CANDIDATES_KEY = "merge_candidates"
+
+
 def get_setting(session: Session, key: str, default: str = "") -> str:
     """전역 설정 KV 조회 (없으면 default)."""
     row = session.get(AppSetting, key)

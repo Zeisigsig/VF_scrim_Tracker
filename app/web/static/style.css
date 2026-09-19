@@ -234,7 +234,12 @@ canvas { max-width: 100%; }
     font-size: 0.85em; white-space: nowrap; }
 .riot-chip .chip-x { background: none; border: none; color: var(--red); cursor: pointer;
     padding: 0 2px; font-size: 1.1em; line-height: 1; }
-.riot-cell { min-width: 210px; }
+/* puuid: Riot 계정 불변 ID. 읽기 전용 표시라 입력 요소를 두지 않는다. */
+.riot-chip .puuid { font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 0.9em; opacity: 0.55; cursor: help; }
+.riot-chip .puuid-none { font-size: 0.9em; color: #ffb84d; cursor: help; }
+.riot-cell { min-width: 260px; }
+.nowrap { white-space: nowrap; }
 .riot-add-form { display: inline-flex; gap: 3px; margin-top: 2px; }
 .nick-preview { font-size: 12px; margin-top: 2px; }
 

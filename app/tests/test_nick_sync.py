@@ -96,3 +96,81 @@ def test_puuid_is_backfilled_from_roster(session: Session) -> None:
     acct = session.scalars(select(PlayerRiotAccount)).one()
     assert acct.puuid == "puuid-1"
     assert any("puuid 보강" in m for m in logs)
+
+
+# --- 병합(merge_players) 이전 누락 ------------------------------------------
+
+def test_merge_moves_riot_account_with_puuid(session: Session) -> None:
+    """리네임으로 갈라진 중복: 새 유저가 쥔 puuid 가 병합에서 사라지면 안 된다."""
+    from app.services import merge_players
+
+    old = _make(session, "그리드", ("그리드", "KR1"), None)
+    new = _make(session, "Tofu", ("Tofu", "KR1"), "puuid-1")
+
+    merge_players(session, source_id=new.id, target_id=old.id)
+    session.flush()
+
+    accts = list(session.scalars(select(PlayerRiotAccount)))
+    assert all(a.player_id == old.id for a in accts)
+    assert {a.puuid for a in accts} == {None, "puuid-1"}
+
+
+def test_merge_moves_login_account(session: Session) -> None:
+    from app.db.models import User
+    from app.services import merge_players
+
+    old = _make(session, "그리드", ("그리드", "KR1"), None)
+    new = _make(session, "Tofu", ("Tofu", "KR1"), "puuid-1")
+    session.add(User(username="토푸", player_id=new.id, password_hash="x"))
+    session.flush()
+
+    merge_players(session, source_id=new.id, target_id=old.id)
+    session.flush()
+
+    user = session.scalars(select(User)).one()
+    assert user.player_id == old.id
+
+
+def test_merge_refuses_when_both_have_login(session: Session) -> None:
+    from app.db.models import User
+    from app.services import merge_players
+
+    old = _make(session, "그리드", ("그리드", "KR1"), None)
+    new = _make(session, "Tofu", ("Tofu", "KR1"), "puuid-1")
+    session.add_all([
+        User(username="그리드", player_id=old.id, password_hash="x"),
+        User(username="토푸", player_id=new.id, password_hash="x"),
+    ])
+    session.flush()
+
+    with pytest.raises(ValueError, match="로그인 계정"):
+        merge_players(session, source_id=new.id, target_id=old.id)
+
+
+def test_merge_moves_head_to_head_and_kill_events(session: Session) -> None:
+    from app.db.models import HeadToHeadKill, KillEvent, Match
+    from app.services import merge_players
+
+    old = _make(session, "그리드", ("그리드", "KR1"), None)
+    new = _make(session, "Tofu", ("Tofu", "KR1"), "puuid-1")
+    victim = _make(session, "피해자", ("victim", "KR1"), "puuid-v")
+    m1 = Match(played_at="2026-09-01T20:00:00")
+    m2 = Match(played_at="2026-09-02T20:00:00")
+    session.add_all([m1, m2])
+    session.flush()
+    # 같은 경기에서 old·new 가 같은 상대를 잡은 행 → 유니크 충돌, 합산돼야 한다.
+    session.add_all([
+        HeadToHeadKill(match_id=m1.id, killer_id=old.id, victim_id=victim.id, kills=2),
+        HeadToHeadKill(match_id=m1.id, killer_id=new.id, victim_id=victim.id, kills=3),
+        HeadToHeadKill(match_id=m2.id, killer_id=new.id, victim_id=victim.id, kills=1),
+        KillEvent(match_id=m2.id, killer_id=new.id, victim_id=victim.id),
+    ])
+    session.flush()
+
+    merge_players(session, source_id=new.id, target_id=old.id)
+    session.flush()
+
+    rows = list(session.scalars(select(HeadToHeadKill)))
+    assert all(r.killer_id == old.id for r in rows)
+    assert {(r.match_id, r.kills) for r in rows} == {(m1.id, 5), (m2.id, 1)}
+    assert session.scalars(select(KillEvent)).one().killer_id == old.id

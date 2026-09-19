@@ -16,6 +16,8 @@ from sqlalchemy.orm import Session
 
 from app import config
 from app.db.models import (
+    HeadToHeadKill,
+    KillEvent,
     Match,
     MatchPlayer,
     MatchRating,
@@ -24,6 +26,7 @@ from app.db.models import (
     PlayerRiotAccount,
     PlayerTier,
     SkillRating,
+    User,
 )
 from app.rating import tier as tier_mod
 from app.rating.openskill_engine import SkillState, initial_state, update_match
@@ -226,6 +229,85 @@ def merge_players(session: Session, source_id: int, target_id: int) -> None:
             target_sources.add(t.source)
         else:
             session.delete(t)
+
+    # 3-1) Riot 계정 이전. Player.riot_accounts 에 delete-orphan 이 걸려 있어
+    #      source 를 지우면 계정도 함께 사라진다. 리네임으로 갈라진 중복은 새로
+    #      생긴 쪽이 puuid 를 쥐고 있어서, 그냥 두면 리네임 추종의 근거를 잃는다.
+    target_accts = list(session.scalars(
+        select(PlayerRiotAccount).where(PlayerRiotAccount.player_id == target_id)
+    ))
+    for acc in list(session.scalars(
+        select(PlayerRiotAccount).where(PlayerRiotAccount.player_id == source_id)
+    )):
+        twin = None
+        for t in target_accts:
+            if acc.puuid and t.puuid:
+                if t.puuid == acc.puuid:
+                    twin = t
+                    break
+                continue  # 서로 다른 puuid = 다른 계정(부계)
+            if (_norm_nick(t.riot_name) == _norm_nick(acc.riot_name)
+                    and _norm_nick(t.riot_tag) == _norm_nick(acc.riot_tag)):
+                twin = t
+                break
+        if twin is None:
+            acc.player_id = target_id
+            target_accts.append(acc)
+            continue
+        # 같은 계정이 양쪽에 있으면 정보가 더 많은 쪽(puuid 보유)을 남긴다.
+        if acc.puuid and not twin.puuid:
+            twin.puuid = acc.puuid
+            twin.riot_name, twin.riot_tag = acc.riot_name, acc.riot_tag
+        session.delete(acc)
+
+    # 3-2) 로그인 계정. User.player_id 는 유니크라 방치하면 죽은 유저를 가리켜
+    #      로그인이 깨지고 재발급도 막힌다. 양쪽 다 있으면 어느 쪽을 버릴지
+    #      기계가 정할 수 없으므로 중단한다.
+    src_user = session.scalar(select(User).where(User.player_id == source_id))
+    if src_user is not None:
+        tgt_user = session.scalar(select(User).where(User.player_id == target_id))
+        if tgt_user is not None:
+            raise ValueError(
+                f"양쪽 모두 로그인 계정이 있습니다 ({src_user.username} / "
+                f"{tgt_user.username}). 하나를 삭제한 뒤 병합하세요."
+            )
+        src_user.player_id = target_id
+
+    # 3-3) 킬 구도·킬 좌표. 경기 삭제 때는 지우면서 병합에는 빠져 있어, 병합 후
+    #      죽은 player_id 가 남아 라이벌 집계·히트맵에 유령이 생겼다.
+    for row in list(session.scalars(
+        select(HeadToHeadKill).where(
+            (HeadToHeadKill.killer_id == source_id)
+            | (HeadToHeadKill.victim_id == source_id)
+        )
+    )):
+        killer = target_id if row.killer_id == source_id else row.killer_id
+        victim = target_id if row.victim_id == source_id else row.victim_id
+        if killer == victim:  # 한 경기에 양쪽이 있던 비정상 데이터 → 버린다
+            session.delete(row)
+            continue
+        twin = session.scalar(select(HeadToHeadKill).where(
+            HeadToHeadKill.match_id == row.match_id,
+            HeadToHeadKill.killer_id == killer,
+            HeadToHeadKill.victim_id == victim,
+            HeadToHeadKill.id != row.id,
+        ))
+        if twin is None:
+            row.killer_id, row.victim_id = killer, victim
+        else:
+            twin.kills += row.kills  # (match, killer, victim) 유니크라 합산
+            session.delete(row)
+    session.flush()
+
+    for ev in session.scalars(
+        select(KillEvent).where(
+            (KillEvent.killer_id == source_id) | (KillEvent.victim_id == source_id)
+        )
+    ).all():
+        if ev.killer_id == source_id:
+            ev.killer_id = target_id
+        if ev.victim_id == source_id:
+            ev.victim_id = target_id
 
     # 4) source 의 SkillRating(파생) 제거 후 source Player 삭제.
     dup_skill = session.get(SkillRating, source_id)

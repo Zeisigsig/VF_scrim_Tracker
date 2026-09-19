@@ -1,6 +1,8 @@
 """웹 라우트 (Jinja2 서버 렌더링) + JSON API (스펙 §6)."""
 from __future__ import annotations
 
+import json
+
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
@@ -40,7 +42,12 @@ from app.db.models import (
     SkillRating,
     User,
 )
-from app.db.session import get_session, get_setting, set_setting
+from app.db.session import (
+    MERGE_CANDIDATES_KEY,
+    get_session,
+    get_setting,
+    set_setting,
+)
 
 PUBLIC_SCORES_KEY = "public_adj_score"
 from app.ingest.matcher import match_nickname, register_alias
@@ -54,6 +61,7 @@ from app.services import (
     merge_players,
     resolve_existing_player,
     save_and_rate,
+    sync_player_nick,
 )
 
 router = APIRouter()
@@ -1010,6 +1018,73 @@ def toggle_public_scores(
     return RedirectResponse(url="/leaderboard", status_code=303)
 
 
+# --- 병합 후보 (merge_renamed CLI 가 탐지 → 여기서 사람이 확인하고 실행) ---
+
+def _load_merge_candidates(session: Session) -> list[dict]:
+    raw = get_setting(session, MERGE_CANDIDATES_KEY, "")
+    if not raw:
+        return []
+    try:
+        items = json.loads(raw)
+    except ValueError:
+        return []
+    return items if isinstance(items, list) else []
+
+
+def _save_merge_candidates(session: Session, items: list[dict]) -> None:
+    set_setting(session, MERGE_CANDIDATES_KEY, json.dumps(items, ensure_ascii=False))
+
+
+def _find_candidate(items: list[dict], source_id: int, target_id: int) -> dict | None:
+    return next(
+        (c for c in items
+         if c.get("source_id") == source_id and c.get("target_id") == target_id),
+        None,
+    )
+
+
+@router.post("/players/merge-candidates/apply")
+def apply_merge_candidate(
+    source_id: int = Form(...), target_id: int = Form(...),
+    session: Session = Depends(get_session), _: AuthUser = Depends(require_admin),
+):
+    """탐지된 병합 후보를 실행한다(되돌릴 수 없음). 실행 후 후보 목록에서 제거."""
+    items = _load_merge_candidates(session)
+    cand = _find_candidate(items, source_id, target_id)
+    if cand is None:
+        return HTMLResponse("후보를 찾을 수 없습니다(이미 처리됨).", status_code=400)
+    try:
+        merge_players(session, source_id=source_id, target_id=target_id)
+    except ValueError as e:
+        return HTMLResponse(str(e), status_code=400)
+    # merge_players 는 생존자의 발로닉을 그대로 두므로, 그냥 두면 표시명이 옛
+    # 닉으로 남는다(원래 고치려던 문제). 현재 Riot 닉으로 맞춰 준다.
+    sync_player_nick(
+        session, target_id, cand.get("riot_name", ""), cand.get("riot_tag", ""),
+        cand.get("puuid"),
+    )
+    _save_merge_candidates(session, [c for c in items if c is not cand])
+    session.commit()
+    from app.calibration.recompute import recompute_all
+    recompute_all()
+    return RedirectResponse(url="/players", status_code=303)
+
+
+@router.post("/players/merge-candidates/dismiss")
+def dismiss_merge_candidate(
+    source_id: int = Form(...), target_id: int = Form(...),
+    session: Session = Depends(get_session), _: AuthUser = Depends(require_admin),
+):
+    """오탐이거나 나중에 볼 후보를 목록에서 뺀다(데이터는 안 건드림)."""
+    items = _load_merge_candidates(session)
+    _save_merge_candidates(session, [
+        c for c in items
+        if not (c.get("source_id") == source_id and c.get("target_id") == target_id)
+    ])
+    session.commit()
+    return RedirectResponse(url="/players", status_code=303)
+
+
 # --- 선수 관리 ----------------------------------------------------------
 
 @router.get("/players", response_class=HTMLResponse)
@@ -1041,6 +1116,7 @@ def players_admin(
     # 어드민에게만: 계정 목록(비번 초기화)·미발급 참가자 수(계정 발급 버튼).
     accounts = []
     unprovisioned = 0
+    merge_candidates: list[dict] = []
     if user.is_admin:
         for u in session.scalars(select(User).order_by(User.username)).all():
             p = session.get(Player, u.player_id)
@@ -1053,11 +1129,18 @@ def players_admin(
             1 for p in session.scalars(select(Player)).all()
             if p.discord_name and not p.departed and p.id not in provisioned_pids
         )
+        # 이미 병합·삭제돼 사라진 후보는 흘려보낸다(CLI 재실행 없이도 목록이 정리됨).
+        for c in _load_merge_candidates(session):
+            src = session.get(Player, c.get("source_id") or 0)
+            tgt = session.get(Player, c.get("target_id") or 0)
+            if src is not None and tgt is not None:
+                merge_candidates.append({**c, "source": src, "target": tgt})
     return templates.TemplateResponse(
         request, "players.html",
         {
             "players": data, "departed": departed, "tier_table": config.TIER_TABLE,
             "accounts": accounts, "unprovisioned": unprovisioned,
+            "merge_candidates": merge_candidates,
         },
     )
 

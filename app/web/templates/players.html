@@ -62,6 +62,14 @@
                 {% for acc in it.riot_accounts %}
                 <span class="riot-chip" data-riot="{{ (acc.riot_name ~ '#' ~ acc.riot_tag)|lower }}">
                     <span class="riot-id">{{ acc.riot_name }}#{{ acc.riot_tag }}</span>
+                    {# puuid 는 Riot 계정 불변 ID(닉을 바꿔도 안 변함). 손으로 넣을 값이
+                       아니라 읽기 전용으로만 보여준다. 없으면 리네임 시 중복 유저로
+                       갈라질 수 있어 경고로 표시. #}
+                    {% if acc.puuid %}
+                    <code class="puuid" title="{{ acc.puuid }}">{{ acc.puuid[:8] }}</code>
+                    {% else %}
+                    <span class="puuid-none" title="puuid 없음 — 이 유저가 인게임 닉을 바꾸면 중복 유저로 갈라질 수 있습니다">puuid 없음</span>
+                    {% endif %}
                     <form class="inline riot-del-form" method="post"
                           action="/players/{{ it.player.id }}/riot/delete" data-ajax data-kind="riot-del">
                         <input type="hidden" name="riot_name" value="{{ acc.riot_name }}">
@@ -220,4 +228,49 @@
 {% if is_admin %}
 <script src="/static/js/players.js?v=1"></script>
 {% endif %}
+
+{% if is_admin %}
+<div class="panel">
+    <h2>병합 후보 {% if merge_candidates %}<span class="badge">{{ merge_candidates|length }}</span>{% endif %}</h2>
+    <p class="muted">인게임 닉을 바꾼 뒤 <b>같은 사람이 두 유저로 갈라진</b> 경우입니다.
+    경기 로스터에서 복원한 <b>puuid 가 일치</b>하면 같은 Riot 계정이므로 동일인이 확정입니다.
+    목록은 <code>uv run python -m app.tools.merge_renamed</code> 가 채웁니다.</p>
+    {% if merge_candidates %}
+    <table>
+        <thead><tr><th>흡수될 유저</th><th>남길 유저</th><th>판단 근거</th><th>Riot ID</th><th>실행</th></tr></thead>
+        <tbody>
+        {% for c in merge_candidates %}
+        <tr>
+            <td><a href="/player/{{ c.source.id }}">{{ c.source.display_name }}</a>
+                <span class="muted">{{ c.source_matches }}판</span></td>
+            <td><a href="/player/{{ c.target.id }}">{{ c.target.display_name }}</a>
+                <span class="muted">{{ c.target_matches }}판</span></td>
+            <td class="muted">{{ c.reason }}</td>
+            <td><span class="riot-id">{{ c.riot_name }}#{{ c.riot_tag }}</span>
+                <code class="puuid" title="{{ c.puuid }}">{{ c.puuid[:8] }}</code></td>
+            <td class="nowrap">
+                <form class="inline" method="post" action="/players/merge-candidates/apply"
+                      onsubmit="return confirm('{{ c.source.display_name }} 의 기록·별칭·Riot 계정을 {{ c.target.display_name }} 로 옮기고 {{ c.source.display_name }} 를 삭제합니다. 표시명은 현재 인게임 닉({{ c.riot_name }})으로 맞춰집니다. 되돌릴 수 없습니다. 진행할까요?');">
+                    <input type="hidden" name="source_id" value="{{ c.source_id }}">
+                    <input type="hidden" name="target_id" value="{{ c.target_id }}">
+                    <button class="danger" type="submit">병합</button>
+                </form>
+                <form class="inline" method="post" action="/players/merge-candidates/dismiss">
+                    <input type="hidden" name="source_id" value="{{ c.source_id }}">
+                    <input type="hidden" name="target_id" value="{{ c.target_id }}">
+                    <button class="ghost" type="submit">기각</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    <p class="muted mt-10">병합하면 전 경기 레이팅이 재계산됩니다. 양쪽 모두 로그인 계정이 있으면
+    거부되니, 하나를 지운 뒤 다시 누르세요.</p>
+    {% else %}
+    <p class="muted">탐지된 후보가 없습니다.</p>
+    {% endif %}
+</div>
+{% endif %}
+
 {% endblock %}
